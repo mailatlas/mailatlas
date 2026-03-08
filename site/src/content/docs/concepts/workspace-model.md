@@ -9,7 +9,8 @@ MailAtlas writes to a simple default storage layout:
 - files on disk for raw messages, HTML snapshots, assets, and exports
 - SQLite for metadata, lookup, dedupe, run history, and IMAP sync cursors
 
-This is the default implementation. It is not the main product value.
+This is the built-in local storage layout. MailAtlas's main value is the parsed content and
+exports, not the storage backend itself.
 
 ## Directory layout
 
@@ -19,12 +20,12 @@ This is the default implementation. It is not the main product value.
 - `exports/`: default destination for file-based outputs such as PDF exports when you do not pass `--out`
 - `store.db`: SQLite index
 
-## Why this shape
+## Why this layout
 
 - You can inspect every stage of the pipeline.
 - Assets stay next to the documents that reference them.
 - SQLite is enough for document listing, lookup, dedupe, and run history.
-- The stored files and metadata are ordinary outputs that can be copied into your own systems.
+- The stored files and metadata are ordinary outputs that can be copied into your own storage or indexing systems.
 
 ## What MailAtlas stores
 

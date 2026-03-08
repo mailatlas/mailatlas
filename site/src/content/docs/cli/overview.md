@@ -4,7 +4,7 @@ description: Use the MailAtlas CLI to ingest, inspect, and export documents.
 slug: docs/cli/overview
 ---
 
-The CLI follows a simple workflow: ingest documents, list or inspect them, then export the shape
+The CLI follows a simple workflow: ingest documents, list or inspect them, then export the format
 you need. When you want MailAtlas to pull directly from a mailbox, use the manual `sync imap`
 command to ingest one or more folders into the same local workspace.
 

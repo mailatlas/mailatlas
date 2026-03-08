@@ -1,6 +1,6 @@
 ---
 title: Python API
-description: Use MailAtlas as a Python library for parse-only or storage-backed workflows.
+description: Use MailAtlas as a Python library for parse-only calls or storage-backed usage.
 slug: docs/python/overview
 ---
 
@@ -30,7 +30,7 @@ document = parse_eml(
 This is the fastest way to inspect parser behavior inside tests, experiments, or data pipelines
 that do not need the default workspace.
 
-## Use `MailAtlas` for storage-backed workflows
+## Use `MailAtlas` for storage-backed usage
 
 ```python
 from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
@@ -76,7 +76,7 @@ sync.
 - `sync_imap(...)` returns per-folder sync results and document refs for that run.
 - `export_document(...)` returns the exported content or output path depending on the format.
 
-See [Document Schema](/docs/concepts/document-schema/) for the persisted record shape and
+See [Document Schema](/docs/concepts/document-schema/) for the persisted record structure and
 [Workspace Model](/docs/concepts/workspace-model/) for the default storage layout.
 
 ## Parser configuration

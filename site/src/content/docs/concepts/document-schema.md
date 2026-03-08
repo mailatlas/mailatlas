@@ -53,7 +53,7 @@ attachments extracted from the message.
 - `source.uid`
 - `source.uidvalidity`
 
-This lets downstream code inspect what MailAtlas changed instead of treating cleaning as a black box.
+This lets application code inspect what MailAtlas changed instead of treating cleaning as a black box.
 
 For IMAP-synced documents, `source_kind` is `imap` and `metadata.source.*` records the mailbox
 folder and UID that produced the stored document.

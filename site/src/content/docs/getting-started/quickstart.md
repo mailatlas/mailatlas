@@ -145,4 +145,4 @@ export, MailAtlas writes the PDF to `workspace/exports/<document-id>.pdf`.
 ## Next step
 
 - Use [Manual IMAP Sync](/docs/getting-started/manual-imap-sync/) if you want to fetch from a live mailbox.
-- Use [Document Schema](/docs/concepts/document-schema/) if you want the full stored record shape.
+- Use [Document Schema](/docs/concepts/document-schema/) if you want the full stored document schema.

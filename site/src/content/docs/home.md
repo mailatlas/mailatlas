@@ -4,9 +4,8 @@ description: Choose the right path for file ingest, IMAP sync, integration, atta
 slug: docs
 ---
 
-MailAtlas turns email into reusable application data, including cleaned text, HTML, inline images,
-and regular file attachments. Pick the path based on where the email lives and what you need to do
-next.
+MailAtlas extracts cleaned text, HTML, assets, and metadata from email for use in your own
+applications. Pick the path based on where the email lives and what you need to do next.
 
 <div class="docs-task-grid">
   <a class="docs-task-card" href="/docs/getting-started/quickstart/">
@@ -27,21 +26,21 @@ next.
   <a class="docs-task-card" href="/docs/python/overview/">
     <span class="docs-task-eyebrow">Embed it</span>
     <strong>Python API</strong>
-    <p>Use parse-only or storage-backed workflows inside your own application code.</p>
+    <p>Use parse-only calls or storage-backed APIs inside your own application code.</p>
   </a>
   <a class="docs-task-card" href="/docs/concepts/document-schema/">
     <span class="docs-task-eyebrow">Inspect outputs</span>
     <strong>Document schema</strong>
-    <p>Understand the normalized record shape, stored fields, and attachment or inline-asset references.</p>
+    <p>Understand the normalized record structure, stored fields, and attachment or inline-asset references.</p>
   </a>
   <a class="docs-task-card" href="/docs/marketing/why-not-connectors/">
     <span class="docs-task-eyebrow">Decide if it fits</span>
     <strong>When to use MailAtlas</strong>
-    <p>See where MailAtlas fits well and where you should choose a different product category.</p>
+    <p>See where MailAtlas is a good fit and where another tool is more appropriate.</p>
   </a>
 </div>
 
-## Pick the right input path
+## Choose an ingestion method
 
 - `ingest eml`: use when you already have one or more `.eml` message files on disk.
 - `ingest mbox`: use when you have one `mbox` mailbox file on disk.

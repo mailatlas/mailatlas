@@ -50,7 +50,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         </div>
 
         <aside class="hero-proof" aria-label="Product model">
-          <div class="eyebrow">Choose an input path</div>
+          <div class="eyebrow">Choose an ingestion method</div>
           <div class="mode-stack">
             <article class="mode-card">
               <span class="mode-card-accent">From files</span>
@@ -68,7 +68,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
               <p>Fetch selected folders over IMAP into the same workspace.</p>
             </article>
           </div>
-          <div class="flow-caption">All three paths create the same stored document shape.</div>
+          <div class="flow-caption">All three paths create the same stored document schema.</div>
           <div class="record-card hero-record">
             <div class="code-header">stored document</div>
             <dl class="record-list">
@@ -119,12 +119,12 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
     <section class="content-grid" id="fit">
       <article class="panel">
         <div class="eyebrow">Use MailAtlas if</div>
-        <h2>Your goal is reusable application data, not inbox UX.</h2>
+        <h2>Your goal is to parse and store email for software systems, not to replace an inbox client.</h2>
         <ul class="detail-list">
           <li>You need cleaned text plus links back to the raw email, HTML, inline images, and file attachments.</li>
-          <li>You want one repeatable ingest layer for retrieval, analytics, audit trails, or agent workflows.</li>
-          <li>You care about deterministic exports such as JSON, Markdown, HTML, and PDF.</li>
-          <li>You want to start with files and add manual IMAP sync later without changing the stored shape.</li>
+          <li>You want one ingest path for retrieval systems, analytics, audit trails, or agent tooling.</li>
+          <li>You want stable export formats such as JSON, Markdown, HTML, and PDF.</li>
+          <li>You want to start with files and add manual IMAP sync later without changing the stored schema.</li>
         </ul>
       </article>
 
@@ -134,7 +134,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         <ul class="detail-list">
           <li>It is not background mailbox sync or a managed connector service.</li>
           <li>It is not hosted inbox search, inbox chat, or a full mailbox client.</li>
-          <li>It is not just a MIME decoder. The point is normalized, inspectable outputs you can reuse.</li>
+          <li>It is not just a MIME decoder. It produces normalized outputs you can inspect, store, and pass to other systems.</li>
           <li>It is not trying to hide the source. Raw provenance stays attached to the stored document.</li>
         </ul>
       </article>
@@ -146,7 +146,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         <h2>The quickest proof is fixture-based ingest from disk.</h2>
         <p>
           Install the CLI, ingest the shipped fixtures, and inspect the stored records before
-          pointing MailAtlas at your own email. This is the fastest way to verify the shape and
+          pointing MailAtlas at your own email. This is the fastest way to verify the stored schema and
           export flow end to end.
         </p>
         <div class="code-block code-block-large">
@@ -177,7 +177,7 @@ mailatlas list \
         <div class="eyebrow">What MailAtlas stores per message</div>
         <h2>One document, plus links back to raw email, attachments, and derived artifacts.</h2>
         <p>
-          The default workspace is a reference implementation. It keeps raw bytes, normalized HTML,
+          The default workspace is the built-in local storage layout. It keeps raw bytes, normalized HTML,
           extracted inline images and attachments, and SQLite metadata together so you can inspect
           them locally or move the data into your own services later.
         </p>
@@ -228,8 +228,8 @@ mailatlas list \
     <section class="footer-cta">
       <div>
         <div class="eyebrow">Next steps</div>
-        <h2>Choose files or a live mailbox and inspect the stored shape.</h2>
-        <p>The docs route by task: installation, file quickstart, IMAP sync, CLI, Python, and schema.</p>
+        <h2>Choose files or a live mailbox and inspect the stored schema.</h2>
+        <p>The docs are organized by task: installation, file quickstart, IMAP sync, CLI, Python, and schema.</p>
         <p class="hero-note">
           Questions, support, or private security reports:
           <a href="mailto:hello@mailatlas.dev"><code>hello@mailatlas.dev</code></a>

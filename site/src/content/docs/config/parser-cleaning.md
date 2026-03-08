@@ -4,7 +4,7 @@ description: Configure MailAtlas body cleaning behavior.
 slug: docs/config/parser-cleaning
 ---
 
-MailAtlas exposes a `ParserConfig` for high-noise email workflows.
+MailAtlas exposes a `ParserConfig` for noisy email sources.
 
 ## Available controls
 
@@ -32,8 +32,8 @@ document = parse_eml(
 
 ## Why it matters
 
-These controls make it easier to benchmark parser behavior on synthetic fixtures and adapt the output for different downstream use cases:
+These controls make it easier to benchmark parser behavior on synthetic fixtures and adapt the output for different consumers:
 
-- preserve wrappers for forensic workflows
+- preserve wrappers for forensic review
 - remove boilerplate for cleaner exports and retrieval chunks
 - stop at footers for cleaner RAG chunks

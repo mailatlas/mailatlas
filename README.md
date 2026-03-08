@@ -18,8 +18,8 @@ MailAtlas produces:
 - JSON, Markdown, HTML, and PDF exports from stored documents
 - manual, incremental IMAP sync into the same local store
 
-It is built for engineers who need email to become reusable application data for retrieval, agents,
-analytics, or archival systems.
+MailAtlas is a library and CLI for parsing, storing, and exporting email for AI agents, retrieval
+systems, analytics pipelines, and archival systems.
 
 ## Why MailAtlas
 
@@ -28,11 +28,11 @@ analytics, or archival systems.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
 - Manually sync selected IMAP folders without storing mailbox credentials in the workspace.
-- Start with the built-in filesystem + SQLite defaults, then move the outputs into your own systems if needed.
+- Start with the built-in filesystem and SQLite store, then copy the resulting files and metadata into your own storage stack if needed.
 
 ## Project Status
 
-MailAtlas is currently alpha. Expect the CLI surface, stored schema, and packaging workflow to keep
+MailAtlas is currently alpha. Expect the CLI, stored schema, and release tooling to keep
 improving, but the repository is set up for public contribution with synthetic fixtures, CI, release
 artifacts, and package smoke checks.
 
@@ -142,7 +142,7 @@ The demo API is intended for a source checkout and requires the `.[api]` extra.
 - Build a retrieval corpus from mailbox exports.
 - Feed agents cleaned email text without losing links to raw messages and attachments.
 - Generate reviewable PDF artifacts from stored HTML or cleaned text fallback.
-- Normalize inbound email for analytics, retention, or archival workflows.
+- Normalize inbound email for analytics, retention, or archival processing.
 - Inspect and test parser behavior against known synthetic fixtures.
 
 ## CLI Example
@@ -233,7 +233,7 @@ against the stored HTML snapshot when one exists, and falls back to generated HT
 
 | Option | What it does well | Where MailAtlas is stronger |
 | --- | --- | --- |
-| Inbox connectors | Convenient ad hoc question answering | Deterministic ingestion, reusable outputs, traceable source data |
+| Inbox connectors | Convenient ad hoc question answering | Repeatable ingestion, exported files, and traceable source records |
 | Generic parsers | Basic MIME parsing | Cleaned text, HTML snapshots, assets, metadata conventions |
 | One-off scripts | Fast for a narrow task | Better repeatability, packaging, examples, docs, and release path |
 

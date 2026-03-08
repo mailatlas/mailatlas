@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: Near-term product direction for the MailAtlas ingestion core.
+description: Near-term roadmap for MailAtlas email parsing, storage, and export features.
 slug: docs/marketing/roadmap
 ---
 
@@ -12,8 +12,8 @@ slug: docs/marketing/roadmap
 
 ## Next
 
-- improve exported document structure for retrieval and indexing workflows
-- expand task-based CLI and Python reference coverage
+- improve exported document structure for retrieval and indexing systems
+- expand CLI and Python reference coverage for common tasks
 - add more fixture-backed examples that show stored HTML and asset extraction
 
 ## Later

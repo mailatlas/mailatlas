@@ -125,8 +125,8 @@ MailAtlas is OAuth-compatible, but it is not your OAuth client. The intended set
 - MailAtlas receives that token with `MAILATLAS_IMAP_ACCESS_TOKEN` or `--access-token`
 - MailAtlas uses XOAUTH2 to authenticate the IMAP session
 
-This keeps provider-specific login UX, consent, token refresh, and secure token storage outside the
-MailAtlas ingestion core.
+This keeps provider-specific login UX, consent, token refresh, and secure token storage outside
+MailAtlas itself.
 
 ## Parser cleaning during sync
 
@@ -144,5 +144,5 @@ See [Parser Cleaning](/docs/config/parser-cleaning/) for behavior and tradeoffs.
 ## Next step
 
 - Use [CLI Overview](/docs/cli/overview/) for the rest of the command surface.
-- Use [Document Schema](/docs/concepts/document-schema/) to inspect the stored record shape.
+- Use [Document Schema](/docs/concepts/document-schema/) to inspect the stored document schema.
 - Use [Security and Privacy](/docs/marketing/security-and-privacy/) for storage and sharing guidance.

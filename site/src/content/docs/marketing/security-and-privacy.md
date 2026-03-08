@@ -4,8 +4,8 @@ description: Understand what MailAtlas stores locally and what to review before 
 slug: docs/marketing/security-and-privacy
 ---
 
-MailAtlas stores data on the filesystem and in SQLite by default. The core CLI and Python workflows
-operate on files you point at or on IMAP folders you sync explicitly; they do not require a hosted
+MailAtlas stores data on the filesystem and in SQLite by default. The core CLI commands and Python
+APIs operate on files you point at or on IMAP folders you sync explicitly; they do not require a hosted
 MailAtlas service.
 
 ## What it stores
