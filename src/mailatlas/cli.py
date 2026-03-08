@@ -102,7 +102,10 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="mailatlas", description="Local-first toolkit for structured email ingestion.")
+    parser = argparse.ArgumentParser(
+        prog="mailatlas",
+        description="Email ingestion for AI agents and data applications.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest content into the local workspace.")

@@ -9,6 +9,7 @@ description = "Email ingestion for AI agents and data applications."
 requires-python = ">=3.11"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [
   {name = "Chirag Agrawal"},
 ]
@@ -23,6 +24,7 @@ keywords = [
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -54,6 +56,10 @@ Homepage = "https://mailatlas.dev"
 Documentation = "https://mailatlas.dev/docs"
 Source = "https://github.com/chiragagrawal/mailatlas"
 Issues = "https://github.com/chiragagrawal/mailatlas/issues"
+Changelog = "https://github.com/chiragagrawal/mailatlas/blob/main/CHANGELOG.md"
+Support = "https://github.com/chiragagrawal/mailatlas/blob/main/SUPPORT.md"
+"Code of Conduct" = "https://github.com/chiragagrawal/mailatlas/blob/main/CODE_OF_CONDUCT.md"
+"Security Policy" = "https://github.com/chiragagrawal/mailatlas/security/policy"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -1,1 +1,1 @@
-# Example applications for the local-first email ingestion toolkit.
+# Example applications for the MailAtlas email ingestion toolkit.

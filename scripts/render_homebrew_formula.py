@@ -8,7 +8,7 @@ from pathlib import Path
 FORMULA_TEMPLATE = """class Mailatlas < Formula
   include Language::Python::Virtualenv
 
-  desc "Local-first email ingestion for AI and data workflows"
+  desc "Email ingestion for AI agents and data applications"
   homepage "https://mailatlas.dev"
   url "https://github.com/{owner}/mailatlas/archive/refs/tags/v{version}.tar.gz"
   sha256 "{sha256}"

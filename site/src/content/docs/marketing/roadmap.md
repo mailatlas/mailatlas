@@ -20,4 +20,4 @@ slug: docs/marketing/roadmap
 
 - background or scheduled mailbox sync beyond manual IMAP runs
 - broader mailbox adapter coverage beyond IMAP
-- packaging and distribution paths that reduce local setup friction once the public release path is ready
+- packaging and distribution paths that reduce local setup friction as release channels mature

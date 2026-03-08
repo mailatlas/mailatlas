@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage Questions And Setup Help
+    url: https://mailatlas.dev/docs
+    about: Start with the docs and quickstart before opening a support issue.
+  - name: Support Policy
+    url: https://github.com/chiragagrawal/mailatlas/blob/main/SUPPORT.md
+    about: See where to route bugs, usage questions, and feature requests.
+  - name: Security Policy
+    url: https://github.com/chiragagrawal/mailatlas/security/policy
+    about: Report vulnerabilities privately instead of opening a public issue.

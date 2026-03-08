@@ -44,10 +44,10 @@ uvicorn app:api --reload --port 5001
 
 Environment variables live in the root `.env.example`.
 
-## Planned distribution
+## Homebrew
 
-The Homebrew tap is planned after the first public release path is in place. Until then, use the
-Python or `uv` install above.
+The repo includes Homebrew formula generation under `packaging/homebrew`. Until a dedicated tap is
+published, use the Python or `uv` install above.
 
 ## Next step
 

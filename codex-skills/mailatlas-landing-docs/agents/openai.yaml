@@ -1,4 +1,0 @@
-interface:
-  display_name: "MailAtlas Landing and Docs"
-  short_description: "Manage MailAtlas landing page, IMAP docs, and product messaging"
-  default_prompt: "Use $mailatlas-landing-docs to update MailAtlas landing page copy and documentation."

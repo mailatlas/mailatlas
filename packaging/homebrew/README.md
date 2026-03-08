@@ -1,19 +1,24 @@
 # Homebrew Packaging
 
-MailAtlas should ship through a dedicated tap:
+This repository includes the tooling needed to publish MailAtlas through a dedicated tap:
 
-- tap repo: `chiragagrawal/homebrew-mailatlas`
+- tap repo: `<owner>/homebrew-mailatlas`
 - formula name: `mailatlas`
+- tap install path: `brew tap <owner>/mailatlas`
 
 This repository contains:
 
 - `mailatlas.rb`: the formula template
 - `scripts/render_homebrew_formula.py`: the release helper that stamps version, owner, and SHA256
 
+Until that tap exists, the supported install paths are the `pip` and `uv` flows in the main
+README.
+
 Recommended release flow:
 
-1. Tag a release in the main repo.
-2. Build the source distribution.
-3. Render the formula with the matching version and SHA256.
-4. Copy the rendered formula into the tap repo.
-5. Run `brew audit --strict --formula ./mailatlas.rb` inside the tap repo.
+1. Create the tap repo as `homebrew-mailatlas` so `brew tap <owner>/mailatlas` works.
+2. Set `HOMEBREW_TAP_REPOSITORY=<owner>/homebrew-mailatlas` as a repository variable in the main repo.
+3. Set `HOMEBREW_TAP_TOKEN` as a repository secret in the main repo.
+4. Tag a release in the main repo.
+5. Let `.github/workflows/release.yml` build the source distribution, render the formula, and push `Formula/mailatlas.rb` into the tap repo.
+6. Run `brew audit --strict --formula ./Formula/mailatlas.rb` inside the tap repo.

@@ -30,6 +30,12 @@ analytics, or archival systems.
 - Manually sync selected IMAP folders without storing mailbox credentials in the workspace.
 - Start with the built-in filesystem + SQLite defaults, then move the outputs into your own systems if needed.
 
+## Project Status
+
+MailAtlas is currently alpha. Expect the CLI surface, stored schema, and packaging workflow to keep
+improving, but the repository is set up for public contribution with synthetic fixtures, CI, release
+artifacts, and package smoke checks.
+
 ## Install
 
 ### `pip`
@@ -57,12 +63,13 @@ uv tool install --from . mailatlas
 
 ### `brew`
 
-The tap workflow is prepared in [`packaging/homebrew`](./packaging/homebrew), but the public tap should wait until the repo and first tagged release exist.
+The tap workflow lives in [`packaging/homebrew`](./packaging/homebrew). Until a dedicated tap repo
+is published, use the `pip` or `uv` install paths above.
 
-Expected release path:
+Once a tap exists, the install flow will look like:
 
 ```bash
-brew tap chiragagrawal/mailatlas
+brew tap <owner>/mailatlas
 brew install mailatlas
 ```
 
@@ -226,7 +233,11 @@ against the stored HTML snapshot when one exists, and falls back to generated HT
 - [Document schema](./site/src/content/docs/concepts/document-schema.md)
 - [Parser cleaning config](./site/src/content/docs/config/parser-cleaning.md)
 - [Why not connectors?](./site/src/content/docs/marketing/why-not-connectors.md)
-- [Marketing plan](./MARKETING_PLAN.md)
+- [Support](./SUPPORT.md)
+- [Security policy](./SECURITY.md)
+- [Changelog](./CHANGELOG.md)
+- [Releasing](./RELEASING.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Contributing](./CONTRIBUTING.md)
 
 ## Development

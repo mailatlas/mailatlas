@@ -1,7 +1,8 @@
 # Contributing
 
-MailAtlas is still early. The most useful contributions right now are parser quality
-improvements, fixture coverage, packaging hardening, and docs clarity.
+The most useful contributions right now are parser quality improvements, fixture coverage,
+packaging hardening, docs clarity, and integration examples that keep the ingestion core easy to
+reason about.
 
 ## Setup
 
@@ -26,6 +27,7 @@ npm install
 - Prefer small, reviewable pull requests.
 - Add or update tests when parser behavior changes.
 - Keep the CLI and Python API examples in sync with docs.
+- Route usage questions and bug reports through the guidance in [`SUPPORT.md`](./SUPPORT.md).
 
 ## Tests
 
@@ -41,6 +43,14 @@ python -m build
 python scripts/smoke_release.py
 ```
 
+If you change README copy or anything under `site/src/content`, rebuild the docs site before
+opening the PR:
+
+```bash
+cd site
+npm run build
+```
+
 ## Pull Requests
 
 - Explain the user-visible behavior change.
@@ -49,5 +59,6 @@ python scripts/smoke_release.py
 
 ## Release Policy
 
-MailAtlas will stay alpha until the public repo, docs site, and Homebrew tap are live.
-Breaking changes are acceptable during the alpha window, but they should be called out in release notes.
+MailAtlas is currently alpha.
+Breaking changes are acceptable when they improve the ingestion core, but they should land with
+tests, docs updates, and a short note in [`CHANGELOG.md`](./CHANGELOG.md).

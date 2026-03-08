@@ -166,7 +166,7 @@ pre {
 }
 
 .hero h1 {
-  max-width: 12.5ch;
+  max-width: 16ch;
   font-size: clamp(3.2rem, 6vw, 5rem);
 }
 
