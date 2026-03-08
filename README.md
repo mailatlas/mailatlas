@@ -138,14 +138,18 @@ Manual IMAP sync is incremental by folder and stores only non-secret cursor stat
 ```bash
 export MAILATLAS_IMAP_HOST=imap.example.com
 export MAILATLAS_IMAP_USERNAME=user@example.com
-export MAILATLAS_IMAP_PASSWORD=app-password
+export MAILATLAS_IMAP_ACCESS_TOKEN=oauth-access-token
 
 mailatlas sync imap \
+  --auth xoauth2 \
   --folder INBOX \
   --folder Newsletters \
   --db .mailatlas/store.db \
   --workspace .mailatlas/workspace
 ```
+
+MailAtlas consumes the access token you already have. It does not run a browser login flow or act
+as your OAuth client.
 
 Parser cleanup is configurable:
 
@@ -217,6 +221,7 @@ against the stored HTML snapshot when one exists, and falls back to generated HT
 
 - [Installation guide](./site/src/content/docs/getting-started/installation.md)
 - [Quickstart walkthrough](./site/src/content/docs/getting-started/quickstart.md)
+- [Manual IMAP sync](./site/src/content/docs/getting-started/manual-imap-sync.md)
 - [Workspace model](./site/src/content/docs/concepts/workspace-model.md)
 - [Document schema](./site/src/content/docs/concepts/document-schema.md)
 - [Parser cleaning config](./site/src/content/docs/config/parser-cleaning.md)

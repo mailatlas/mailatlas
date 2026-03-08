@@ -30,7 +30,7 @@ that do not need the default workspace.
 ## Use `MailAtlas` for storage-backed workflows
 
 ```python
-from mailatlas import MailAtlas, ParserConfig
+from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
@@ -50,7 +50,8 @@ sync_result = atlas.sync_imap(
     ImapSyncConfig(
         host="imap.example.com",
         username="user@example.com",
-        password="app-password",
+        access_token="oauth-access-token",
+        auth="xoauth2",
         folders=("INBOX", "Newsletters"),
     )
 )
@@ -83,6 +84,9 @@ footer stopping, link-only line removal, or whitespace cleanup.
 
 Use `ImapSyncConfig(...)` when you want MailAtlas to connect to an IMAP mailbox over TLS, fetch one
 or more folders incrementally, and store only non-secret sync cursor state in SQLite.
+
+Treat MailAtlas as the OAuth consumer rather than the OAuth client: your app or local tooling
+should obtain the access token, then pass it into `ImapSyncConfig(access_token=..., auth="xoauth2")`.
 
 Use `atlas.ingest_mbox(...)` instead when you already have an `mbox` mailbox file on disk. `mbox`
 is a file format; IMAP sync is the live mailbox access path. For a CLI walkthrough of mailbox sync,

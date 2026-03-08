@@ -31,5 +31,7 @@ PDF export uses a local Chrome or Chromium process to render stored HTML. Set
 
 - Treat the default filesystem plus SQLite store as source data, not as a scrubbed sharing format.
 - Treat saved IMAP sync state as operational metadata only; MailAtlas does not persist mailbox secrets there.
+- If you use OAuth for IMAP, obtain and store tokens in your own auth layer or secret source, then
+  pass them to MailAtlas at runtime.
 - Review exported JSON, HTML, Markdown, and PDF artifacts before sending them outside your machine or repository.
 - Use synthetic fixtures for demos when you do not want real inbox content in screenshots, examples, or tests.

@@ -1,4 +1,4 @@
 interface:
   display_name: "MailAtlas Maintainer"
-  short_description: "Maintain MailAtlas parser, exports, docs, and demos"
+  short_description: "Maintain MailAtlas parser, IMAP sync, exports, docs, and demos"
   default_prompt: "Use $mailatlas-maintainer to work on the MailAtlas repo."

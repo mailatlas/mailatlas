@@ -41,6 +41,8 @@ Use the CLI help or existing verification venv when needed:
   - `.eml` = one message file on disk
   - `mbox` = one mailbox file on disk
   - `sync imap` = live mailbox access for selected folders
+- Describe OAuth for IMAP as bring-your-own-token. MailAtlas consumes an access token but does not
+  own consent screens, browser login, or refresh-token storage.
 - Do not call `mbox` an archive on the landing page if that wording could be confused with live
   mailbox sync.
 - Do not imply background sync, hosted inbox search, managed storage, or a mailbox client unless

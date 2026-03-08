@@ -122,6 +122,8 @@ See [Parser Cleaning](/docs/config/parser-cleaning/) for behavior and tradeoffs.
 
 - `--auth password` uses `--password` or `MAILATLAS_IMAP_PASSWORD`.
 - `--auth xoauth2` uses `--access-token` or `MAILATLAS_IMAP_ACCESS_TOKEN`.
+- Bring your own OAuth token. MailAtlas consumes an existing access token; it does not start a
+  browser login flow or manage refresh tokens.
 - MailAtlas stores only IMAP sync cursors in SQLite, not mailbox credentials.
 
 PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if MailAtlas cannot find the

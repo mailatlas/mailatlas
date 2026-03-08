@@ -1,6 +1,6 @@
 ---
 name: mailatlas-maintainer
-description: Maintain the MailAtlas email-ingestion project in /Users/chiragagrawal/Documents/workspace/newsletter. Use when working on parser behavior, HTML/PDF export, docs and site previews, CLI demos, parser API demos, or release-readiness tasks for MailAtlas.
+description: Maintain the MailAtlas email-ingestion project in /Users/chiragagrawal/Documents/workspace/newsletter. Use when working on parser behavior, IMAP sync, HTML/PDF export, docs and site previews, CLI demos, parser API demos, or release-readiness tasks for MailAtlas.
 ---
 
 # MailAtlas Maintainer
@@ -18,6 +18,9 @@ Use this skill when the task is specifically about the MailAtlas repo.
 - Treat filesystem plus SQLite as the default implementation, not the product identity.
 - Do not lead public copy with `local-first`.
 - Do not make briefing generation the primary story.
+- Treat IMAP sync as manual mailbox ingestion, not a background connector or mailbox client.
+- Treat MailAtlas as an OAuth consumer, not the OAuth client. Token acquisition and refresh belong in
+  the caller's auth layer.
 
 ## Core Validation
 
@@ -28,6 +31,8 @@ Use this skill when the task is specifically about the MailAtlas repo.
 3. For landing/docs review, serve `site/dist` and inspect the actual pages:
    `python3 -m http.server 8766 --bind 127.0.0.1 -d site/dist`
 4. Use `scripts/chrome_capture.sh` for screenshots instead of ad hoc Chrome commands.
+5. For IMAP changes, validate at least one `sync imap` run and one incremental rerun against the
+   same scratch `--db` and `--workspace` before calling the flow ready.
 
 ## Deterministic Demos
 
@@ -55,3 +60,5 @@ The demo scripts default to the synthetic inline-chart fixture and write outputs
 
 - When demoing CLI behavior, show the exact command, the input fixture, and the generated output path.
 - When demoing parser behavior, show the `parse_eml(...)` snippet and the parsed JSON shape.
+- When demoing IMAP sync, show the auth mode, the folder list, the scratch workspace path, and the
+  fetched versus ingested counts from the JSON summary.

@@ -17,6 +17,8 @@ mailbox. MailAtlas stores sync cursors in SQLite so later runs can continue incr
 - Choose one auth mode: password or OAuth access token.
 - Decide which folders to fetch. `INBOX` is the default.
 - MailAtlas stores IMAP sync state in SQLite. It does not persist mailbox credentials.
+- Bring your own OAuth token if your provider requires OAuth. MailAtlas consumes the access token;
+  it does not run a browser login flow or manage refresh tokens for you.
 
 ## 1. Set connection details
 
@@ -36,6 +38,10 @@ export MAILATLAS_IMAP_USERNAME=user@example.com
 export MAILATLAS_IMAP_ACCESS_TOKEN=oauth-access-token
 ```
 
+This is the recommended path when your provider or your application stack already uses OAuth. Keep
+the token acquisition flow in your own auth layer or token broker, then pass the access token to
+MailAtlas at runtime.
+
 ## 2. Sync one or more folders
 
 ```bash
@@ -48,6 +54,9 @@ mailatlas sync imap \
 ```
 
 If you are using OAuth, change `--auth password` to `--auth xoauth2`.
+
+You can also pass `--access-token ...` directly on the command line instead of using an environment
+variable, but env vars or another local secret source are usually easier to avoid shell history.
 
 ## 3. Read the sync summary
 
@@ -107,6 +116,17 @@ mailatlas show <document-id> \
 When you rerun the same folder sync against the same `--db`, MailAtlas uses stored IMAP cursor
 state to fetch only newer messages when possible. If you point the command at a different database,
 you start a fresh sync history.
+
+## OAuth developer story
+
+MailAtlas is OAuth-compatible, but it is not your OAuth client. The intended setup is:
+
+- your product or local tooling obtains an access token
+- MailAtlas receives that token with `MAILATLAS_IMAP_ACCESS_TOKEN` or `--access-token`
+- MailAtlas uses XOAUTH2 to authenticate the IMAP session
+
+This keeps provider-specific login UX, consent, token refresh, and secure token storage outside the
+MailAtlas ingestion core.
 
 ## Parser cleaning during sync
 
