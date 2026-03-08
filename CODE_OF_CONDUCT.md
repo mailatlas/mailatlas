@@ -27,7 +27,7 @@ requests, and other contributions that violate this code of conduct.
 
 ## Reporting
 
-Report conduct issues to `opensource@chiragagrawal.me`. Reports will be reviewed
+Report conduct issues to `hello@mailatlas.dev`. Reports will be reviewed
 promptly and handled as confidentially as practical.
 
 This project follows the spirit of the [Contributor Covenant](https://www.contributor-covenant.org/).

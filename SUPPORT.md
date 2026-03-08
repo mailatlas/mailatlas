@@ -20,9 +20,9 @@ Include:
 ## Security Reports
 
 Do not file public issues for security problems. Follow [`SECURITY.md`](./SECURITY.md) and email
-`security@chiragagrawal.me`.
+`hello@mailatlas.dev`.
 
 ## Community Standards
 
 Project spaces follow the expectations in [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md). Report
-conduct issues to `opensource@chiragagrawal.me`.
+conduct issues to `hello@mailatlas.dev`.

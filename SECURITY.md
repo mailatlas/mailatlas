@@ -13,7 +13,7 @@ Security fixes are targeted at the latest tagged release and the main developmen
 
 Do not open public GitHub issues for suspected security problems.
 
-Report vulnerabilities to `security@chiragagrawal.me` with:
+Report vulnerabilities to `hello@mailatlas.dev` with:
 
 - affected version or commit
 - reproduction steps or sample payload
