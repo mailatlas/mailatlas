@@ -43,34 +43,47 @@ artifacts, and package smoke checks.
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install mailatlas
 ```
 
-After that, use the `mailatlas` command directly. You should not need `PYTHONPATH=src`.
+After that, use the `mailatlas` command directly.
 
-If you want the example API as well:
+If you want the optional AI or API extras from PyPI:
 
 ```bash
-python -m pip install -e ".[api]"
+python -m pip install "mailatlas[api]"
+python -m pip install "mailatlas[ai]"
 ```
 
 ### `uv`
 
 ```bash
 python3.12 -m pip install uv
-uv tool install --from . mailatlas
+uv tool install mailatlas
 ```
 
 ### `brew`
 
-The tap workflow lives in [`packaging/homebrew`](./packaging/homebrew). Until a dedicated tap repo
-is published, use the `pip` or `uv` install paths above.
-
-Once a tap exists, the install flow will look like:
-
 ```bash
 brew tap mailatlas/mailatlas
 brew install mailatlas
+```
+
+If Homebrew resolves a different formula named `mailatlas`, use:
+
+```bash
+brew install mailatlas/mailatlas/mailatlas
+```
+
+### From source
+
+Use a source checkout when you want to run the shipped fixtures, the example API, or contribute to
+the project:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
 
 ## 60-Second Quickstart
@@ -122,7 +135,7 @@ Run the demo API:
 uvicorn app:api --reload --port 5001
 ```
 
-The demo API requires the `.[api]` extra.
+The demo API is intended for a source checkout and requires the `.[api]` extra.
 
 ## Core Use Cases
 

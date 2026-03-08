@@ -153,11 +153,10 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           <div class="code-header">recommended path</div>
           <pre>python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install mailatlas
 
 mailatlas ingest eml \
-  data/fixtures/atlas-market-map.eml \
-  data/fixtures/atlas-inline-chart.eml \
+  path/to/message.eml \
   --db .mailatlas/store.db \
   --workspace .mailatlas/workspace
 
@@ -166,8 +165,9 @@ mailatlas list \
   --workspace .mailatlas/workspace</pre>
         </div>
         <ul class="detail-list detail-list-tight">
-          <li>Use <code>python -m pip install -e ".[api]"</code> only if you want the example API.</li>
-          <li>Use <code>uv tool install --from . mailatlas</code> for a CLI-style local install.</li>
+          <li>Use <code>python -m pip install "mailatlas[api]"</code> only if you want the published API extra.</li>
+          <li>Use <code>uv tool install mailatlas</code> or Homebrew if you prefer a tool-style install.</li>
+          <li>Clone the repo if you want the shipped fixtures or the example API app.</li>
           <li>Use <code>sync imap</code> instead when the messages are still in a live mailbox.</li>
           <li>Export JSON, HTML, or Markdown anywhere with <code>--out</code>; PDF export is optional.</li>
         </ul>

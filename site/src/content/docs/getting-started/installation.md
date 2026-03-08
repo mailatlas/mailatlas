@@ -4,8 +4,8 @@ description: Install MailAtlas locally and choose the right starting path.
 slug: docs/getting-started/installation
 ---
 
-MailAtlas is easiest to start with an editable Python install. Use `uv` if you prefer a CLI-style
-tool install. Chrome or Chromium is only required if you want PDF export.
+MailAtlas is easiest to start from PyPI. Use `uv` or Homebrew if you prefer a tool-style install.
+Chrome or Chromium is only required if you want PDF export.
 
 After installation, you have two ways to bring email in:
 
@@ -17,14 +17,14 @@ After installation, you have two ways to bring email in:
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install mailatlas
 mailatlas --help
 ```
 
-The core toolkit does not require any cloud services. After the editable install, use
-`mailatlas ...` directly instead of `PYTHONPATH=src python -m ...`.
+The core toolkit does not require any cloud services.
 
-- Install `python -m pip install -e ".[api]"` only if you want the example API.
+- Install `python -m pip install "mailatlas[api]"` only if you want the published API extra.
+- Install `python -m pip install "mailatlas[ai]"` only if you want the published AI extra.
 - Install Chrome or Chromium only if you want PDF export.
 - Set `MAILATLAS_PDF_BROWSER` if the browser executable is not on the default path.
 
@@ -32,22 +32,39 @@ The core toolkit does not require any cloud services. After the editable install
 
 ```bash
 python3.12 -m pip install uv
-uv tool install --from . mailatlas
+uv tool install mailatlas
+```
+
+## Optional path: Homebrew
+
+```bash
+brew tap mailatlas/mailatlas
+brew install mailatlas
+```
+
+If Homebrew resolves a different formula named `mailatlas`, use
+`brew install mailatlas/mailatlas/mailatlas`.
+
+## From source
+
+Use a source checkout when you want the shipped fixtures, the example API, or editable development:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
 
 ## Optional Demo API
+
+From a source checkout:
 
 ```bash
 python -m pip install -e ".[api]"
 uvicorn app:api --reload --port 5001
 ```
 
-Environment variables live in the root `.env.example`.
-
-## Homebrew
-
-The repo includes Homebrew formula generation under `packaging/homebrew`. Until a dedicated tap is
-published, use the Python or `uv` install above.
+Environment variables for the example API live in the root `.env.example`.
 
 ## Next step
 
