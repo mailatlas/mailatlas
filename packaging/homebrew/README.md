@@ -1,10 +1,10 @@
 # Homebrew Packaging
 
-This repository includes the tooling needed to publish MailAtlas through a dedicated tap:
+This repository includes the tooling needed to publish MailAtlas through the dedicated tap repo:
 
-- tap repo: `<owner>/homebrew-mailatlas`
+- tap repo: `mailatlas/homebrew-mailatlas`
 - formula name: `mailatlas`
-- tap install path: `brew tap <owner>/mailatlas`
+- tap install path: `brew tap mailatlas/mailatlas`
 
 This repository contains:
 
@@ -16,8 +16,8 @@ README.
 
 Recommended release flow:
 
-1. Create the tap repo as `homebrew-mailatlas` so `brew tap <owner>/mailatlas` works.
-2. Set `HOMEBREW_TAP_REPOSITORY=<owner>/homebrew-mailatlas` as a repository variable in the main repo.
+1. Create the tap repo as `homebrew-mailatlas` so `brew tap mailatlas/mailatlas` works.
+2. Set `HOMEBREW_TAP_REPOSITORY=mailatlas/homebrew-mailatlas` as a repository variable in the main repo.
 3. Set `HOMEBREW_TAP_TOKEN` as a repository secret in the main repo.
 4. Tag a release in the main repo.
 5. Let `.github/workflows/release.yml` build the source distribution, render the formula, and push `Formula/mailatlas.rb` into the tap repo.

@@ -16,7 +16,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/chiragagrawal/mailatlas",
+          href: "https://github.com/mailatlas/mailatlas",
         },
       ],
       sidebar: [

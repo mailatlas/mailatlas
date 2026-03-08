@@ -25,7 +25,7 @@ is required once Trusted Publishing is configured.
    should own the formula.
 2. Add a `Formula/` directory in that tap repo.
 3. In this repo, add a repository variable named `HOMEBREW_TAP_REPOSITORY` with the value
-   `<owner>/homebrew-mailatlas`.
+   `mailatlas/homebrew-mailatlas`.
 4. In this repo, add a repository secret named `HOMEBREW_TAP_TOKEN` that can push to the tap repo.
    A fine-grained token with `Contents: Read and write` on the tap repository is sufficient.
 
@@ -47,12 +47,12 @@ When those are present, the release workflow will render `mailatlas.rb`, copy it
 
 - `python -m pip install mailatlas`
 - `uv tool install mailatlas`
-- `brew tap <owner>/mailatlas`
+- `brew tap mailatlas/mailatlas`
 - `brew install mailatlas`
 
 If the tap publishes a formula that conflicts with an existing core formula, use the fully qualified
 install name:
 
 ```bash
-brew install <owner>/mailatlas/mailatlas
+brew install mailatlas/mailatlas/mailatlas
 ```

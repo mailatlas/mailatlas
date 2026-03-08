@@ -69,7 +69,7 @@ is published, use the `pip` or `uv` install paths above.
 Once a tap exists, the install flow will look like:
 
 ```bash
-brew tap <owner>/mailatlas
+brew tap mailatlas/mailatlas
 brew install mailatlas
 ```
 
