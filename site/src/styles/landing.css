@@ -61,6 +61,7 @@ pre {
 
 .topbar,
 .hero-copy,
+.hero-proof,
 .proof-card,
 .panel,
 .code-block,
@@ -121,14 +122,27 @@ pre {
   display: block;
 }
 
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
+  gap: 1.25rem;
+}
+
 .hero-copy,
+.hero-proof,
 .panel,
 .footer-cta {
   border-radius: var(--radius-lg);
 }
 
-.hero-copy {
+.hero-copy,
+.hero-proof {
   padding: 2.5rem 2.75rem;
+}
+
+.hero-proof {
+  display: flex;
+  flex-direction: column;
 }
 
 .eyebrow,
@@ -167,6 +181,13 @@ pre {
 
 .lede {
   max-width: 52rem;
+}
+
+.hero-note {
+  margin: 1.1rem 0 0;
+  max-width: 44rem;
+  color: var(--ink-soft);
+  line-height: 1.7;
 }
 
 .detail-list {
@@ -216,6 +237,51 @@ pre {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(242, 234, 223, 0.45));
   color: var(--ink-soft);
   line-height: 1.4;
+}
+
+.mode-stack {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.mode-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(242, 234, 223, 0.5));
+}
+
+.mode-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1rem;
+}
+
+.mode-card p {
+  margin: 0.5rem 0 0;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.mode-card-accent {
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+}
+
+.flow-caption {
+  margin-top: 1rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.hero-record {
+  margin-top: 1rem;
 }
 
 .button {
@@ -392,6 +458,7 @@ pre {
 }
 
 @media (max-width: 960px) {
+  .hero-grid,
   .content-grid,
   .proof-grid,
   .workspace-grid {
@@ -401,6 +468,11 @@ pre {
   .topbar,
   .footer-cta {
     border-radius: 28px;
+  }
+
+  .hero-copy,
+  .hero-proof {
+    padding: 1.6rem;
   }
 
   .footer-cta {
@@ -416,6 +488,7 @@ pre {
   }
 
   .hero-copy,
+  .hero-proof,
   .panel,
   .footer-cta {
     padding: 1.2rem;

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
+import os
+import sys
 
+from mailatlas.adapters.imap import ImapSyncError
 from mailatlas.ai import generate_brief
-from mailatlas.core import MailAtlas, ParserConfig
+from mailatlas.core import ImapSyncConfig, MailAtlas, ParserConfig
 
 
 def _workspace_defaults() -> tuple[str, str]:
@@ -68,6 +70,37 @@ def _parser_config_from_args(args: argparse.Namespace) -> ParserConfig:
     )
 
 
+def _env_or_value(value: str | None, env_name: str, default: str | None = None) -> str | None:
+    if value is not None:
+        return value
+    return os.environ.get(env_name, default)
+
+
+def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
+    host = _env_or_value(args.host, "MAILATLAS_IMAP_HOST")
+    port_raw = _env_or_value(str(args.port) if args.port is not None else None, "MAILATLAS_IMAP_PORT", "993")
+    username = _env_or_value(args.username, "MAILATLAS_IMAP_USERNAME")
+    password = _env_or_value(args.password, "MAILATLAS_IMAP_PASSWORD")
+    access_token = _env_or_value(args.access_token, "MAILATLAS_IMAP_ACCESS_TOKEN")
+    folders = tuple(args.folder or ["INBOX"])
+
+    try:
+        port = int(port_raw or "993")
+    except ValueError as error:
+        raise ValueError("IMAP port must be an integer.") from error
+
+    return ImapSyncConfig(
+        host=host or "",
+        port=port,
+        username=username or "",
+        auth=args.auth,
+        password=password,
+        access_token=access_token,
+        folders=folders,
+        parser_config=_parser_config_from_args(args),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mailatlas", description="Local-first toolkit for structured email ingestion.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -114,6 +147,34 @@ def _build_parser() -> argparse.ArgumentParser:
     brief_generate_parser.add_argument("--out", default=None, help="Output HTML path.")
     brief_generate_parser.add_argument("--provider", default="fallback", help="Brief provider: fallback, openai, anthropic, google.")
     _add_workspace_arguments(brief_generate_parser)
+
+    sync_parser = subparsers.add_parser("sync", help="Sync content from external sources.")
+    sync_subparsers = sync_parser.add_subparsers(dest="sync_command", required=True)
+
+    sync_imap_parser = sync_subparsers.add_parser("imap", help="Sync one or more IMAP folders.")
+    sync_imap_parser.add_argument("--host", default=None, help="IMAP hostname or use MAILATLAS_IMAP_HOST.")
+    sync_imap_parser.add_argument("--port", type=int, default=None, help="IMAP TLS port or use MAILATLAS_IMAP_PORT.")
+    sync_imap_parser.add_argument("--username", default=None, help="IMAP username or use MAILATLAS_IMAP_USERNAME.")
+    sync_imap_parser.add_argument(
+        "--auth",
+        choices=["password", "xoauth2"],
+        default="password",
+        help="Authentication mode.",
+    )
+    sync_imap_parser.add_argument("--password", default=None, help="IMAP password or use MAILATLAS_IMAP_PASSWORD.")
+    sync_imap_parser.add_argument(
+        "--access-token",
+        default=None,
+        help="OAuth access token or use MAILATLAS_IMAP_ACCESS_TOKEN.",
+    )
+    sync_imap_parser.add_argument(
+        "--folder",
+        action="append",
+        default=None,
+        help="Folder to sync. Repeat for multiple folders. Defaults to INBOX.",
+    )
+    _add_workspace_arguments(sync_imap_parser)
+    _add_parser_config_arguments(sync_imap_parser)
 
     return parser
 
@@ -164,6 +225,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(output_path)
         return 0
+
+    if args.command == "sync" and args.sync_command == "imap":
+        try:
+            result = atlas.sync_imap(_imap_sync_config_from_args(args))
+        except (ImapSyncError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+        print(json.dumps(result.to_dict(), indent=2))
+        return 1 if result.has_errors() else 0
 
     parser.error("Unsupported command")
     return 1

@@ -44,5 +44,13 @@ Assets are stored separately with:
 - `cleaning.dropped_line_count`
 - `cleaning.stopped_at_footer`
 - `parser_config.*`
+- `source.kind`
+- `source.host`
+- `source.folder`
+- `source.uid`
+- `source.uidvalidity`
 
 This lets downstream code inspect what MailAtlas changed instead of treating cleaning as a black box.
+
+For IMAP-synced documents, `source_kind` is `imap` and `metadata.source.*` records the mailbox
+folder and UID that produced the stored document.

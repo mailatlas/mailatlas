@@ -5,13 +5,20 @@ import os
 import re
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import DocumentRecord, DocumentRef, NormalizedDocument, StoredAsset
+from .models import DocumentRecord, DocumentRef, ImapSyncState, NormalizedDocument, StoredAsset
 
 
 PARSER_VERSION = "v1"
+
+
+@dataclass(frozen=True)
+class DocumentSaveResult:
+    ref: DocumentRef
+    status: str
 
 
 def _utc_now() -> str:
@@ -123,6 +130,19 @@ class WorkspaceStore:
                     document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                     PRIMARY KEY (brief_run_id, document_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS imap_sync_state (
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    folder TEXT NOT NULL,
+                    uidvalidity TEXT,
+                    last_uid INTEGER NOT NULL DEFAULT 0,
+                    last_synced_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    PRIMARY KEY (host, port, username, folder)
+                );
                 """
             )
 
@@ -149,15 +169,23 @@ class WorkspaceStore:
                 return None
         return self.get_document(row["id"])
 
-    def save_document(self, document: NormalizedDocument, source_path: str) -> DocumentRef:
+    def save_document_result(self, document: NormalizedDocument, source_path: str) -> DocumentSaveResult:
         existing = self._find_existing(document)
         if existing:
             self._record_import(document.source_kind, source_path, "duplicate")
-            return DocumentRef(id=existing.id, subject=existing.subject, source_kind=existing.source_kind, created_at=existing.created_at)
+            return DocumentSaveResult(
+                ref=DocumentRef(
+                    id=existing.id,
+                    subject=existing.subject,
+                    source_kind=existing.source_kind,
+                    created_at=existing.created_at,
+                ),
+                status="duplicate",
+            )
 
         document_id = str(uuid.uuid4())
         created_at = _utc_now()
-        raw_extension = ".eml" if document.source_kind == "eml" else ".bin"
+        raw_extension = ".eml" if document.source_kind in {"eml", "imap"} else ".bin"
         raw_relative = Path("raw") / f"{document_id}{raw_extension}"
         raw_target = self.workspace_path / raw_relative
         raw_target.write_bytes(document.raw_bytes)
@@ -245,7 +273,13 @@ class WorkspaceStore:
             )
 
         self._record_import(document.source_kind, source_path, "ingested")
-        return DocumentRef(id=document_id, subject=document.subject, source_kind=document.source_kind, created_at=created_at)
+        return DocumentSaveResult(
+            ref=DocumentRef(id=document_id, subject=document.subject, source_kind=document.source_kind, created_at=created_at),
+            status="ingested",
+        )
+
+    def save_document(self, document: NormalizedDocument, source_path: str) -> DocumentRef:
+        return self.save_document_result(document, source_path).ref
 
     def get_document(self, document_id: str) -> DocumentRecord:
         with self._connect() as connection:
@@ -344,3 +378,71 @@ class WorkspaceStore:
                 [(brief_run_id, document_id) for document_id in document_ids],
             )
         return brief_run_id
+
+    def get_imap_sync_state(self, host: str, port: int, username: str, folder: str) -> ImapSyncState | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT host, port, username, folder, uidvalidity, last_uid, last_synced_at, status, error
+                FROM imap_sync_state
+                WHERE host = ? AND port = ? AND username = ? AND folder = ?
+                """,
+                (host, port, username, folder),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return ImapSyncState(
+            host=row["host"],
+            port=row["port"],
+            username=row["username"],
+            folder=row["folder"],
+            uidvalidity=row["uidvalidity"],
+            last_uid=int(row["last_uid"] or 0),
+            last_synced_at=row["last_synced_at"],
+            status=row["status"],
+            error=row["error"],
+        )
+
+    def save_imap_sync_state(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        folder: str,
+        uidvalidity: str | None,
+        last_uid: int,
+        status: str,
+        error: str | None = None,
+    ) -> ImapSyncState:
+        last_synced_at = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO imap_sync_state (
+                    host, port, username, folder, uidvalidity, last_uid, last_synced_at, status, error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(host, port, username, folder)
+                DO UPDATE SET
+                    uidvalidity = excluded.uidvalidity,
+                    last_uid = excluded.last_uid,
+                    last_synced_at = excluded.last_synced_at,
+                    status = excluded.status,
+                    error = excluded.error
+                """,
+                (host, port, username, folder, uidvalidity, last_uid, last_synced_at, status, error),
+            )
+
+        return ImapSyncState(
+            host=host,
+            port=port,
+            username=username,
+            folder=folder,
+            uidvalidity=uidvalidity,
+            last_uid=last_uid,
+            last_synced_at=last_synced_at,
+            status=status,
+            error=error,
+        )

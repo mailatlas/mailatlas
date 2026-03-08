@@ -1,14 +1,22 @@
 # MailAtlas
 
-**MailAtlas turns email archives into cleaned text, HTML, assets, metadata, and exportable artifacts for applications.**
+**MailAtlas turns email files and manually synced IMAP folders into cleaned text, HTML, assets, metadata, and exportable artifacts for applications.**
 
-MailAtlas ingests `.eml` files and `mbox` archives and produces:
+MailAtlas has two input paths:
+
+- ingest email files already on disk with `ingest eml` and `ingest mbox`
+- connect to a live mailbox with `sync imap` and fetch selected folders manually
+
+An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
+
+MailAtlas produces:
 
 - cleaned body text
 - normalized HTML snapshots when the message contains HTML
 - extracted inline images and attachments
 - document metadata and provenance
 - JSON, Markdown, HTML, and PDF exports from stored documents
+- manual, incremental IMAP sync into the same local store
 
 It is built for engineers who need email to become reusable application data for retrieval, agents,
 analytics, or archival systems.
@@ -19,6 +27,7 @@ analytics, or archival systems.
 - Preserve provenance, forwarded chains, and inline images.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
+- Manually sync selected IMAP folders without storing mailbox credentials in the workspace.
 - Start with the built-in filesystem + SQLite defaults, then move the outputs into your own systems if needed.
 
 ## Install
@@ -124,6 +133,20 @@ mailatlas ingest mbox data/fixtures/atlas-demo.mbox \
   --workspace .mailatlas/workspace
 ```
 
+Manual IMAP sync is incremental by folder and stores only non-secret cursor state:
+
+```bash
+export MAILATLAS_IMAP_HOST=imap.example.com
+export MAILATLAS_IMAP_USERNAME=user@example.com
+export MAILATLAS_IMAP_PASSWORD=app-password
+
+mailatlas sync imap \
+  --folder INBOX \
+  --folder Newsletters \
+  --db .mailatlas/store.db \
+  --workspace .mailatlas/workspace
+```
+
 Parser cleanup is configurable:
 
 ```bash
@@ -137,7 +160,7 @@ mailatlas ingest eml data/fixtures/atlas-founder-forward.eml \
 ## Python API Example
 
 ```python
-from mailatlas import MailAtlas, ParserConfig
+from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
@@ -151,6 +174,15 @@ parsed = atlas.parse_eml(
 
 refs = atlas.ingest_eml(
     ["data/fixtures/atlas-market-map.eml", "data/fixtures/atlas-inline-chart.eml"],
+)
+
+sync_result = atlas.sync_imap(
+    ImapSyncConfig(
+        host="imap.example.com",
+        username="user@example.com",
+        password="app-password",
+        folders=("INBOX", "Newsletters"),
+    )
 )
 
 pdf_path = atlas.export_document(
@@ -167,7 +199,7 @@ MailAtlas writes ordinary files to the filesystem and indexes them in SQLite by 
 - `html/` for normalized HTML bodies when present
 - `assets/` for extracted inline and attached files
 - `exports/` for JSON, Markdown, HTML, and PDF exports
-- `store.db` for the SQLite index
+- `store.db` for the SQLite index and IMAP sync cursors
 
 These are ordinary files and metadata rows. If you are embedding MailAtlas inside a service, you
 can move them into your own blob store and database. PDF export uses headless Chrome or Chromium

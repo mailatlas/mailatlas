@@ -15,5 +15,5 @@ mailatlas ingest eml \
 This example is useful for:
 
 - one-off fixture debugging
-- archived messages stored on disk
+- stored message files on disk
 - test-driven parser changes

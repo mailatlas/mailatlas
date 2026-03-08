@@ -1,24 +1,32 @@
 ---
-title: Why Not Connectors?
-description: Understand the gap between inbox connectors and a reusable ingestion layer.
+title: When to Use MailAtlas
+description: Understand where MailAtlas fits and where another tool is a better choice.
 slug: docs/marketing/why-not-connectors
 ---
 
-Inbox connectors are useful for searching or asking questions against a connected account.
+MailAtlas is useful when email needs to become reusable application data that you can store,
+inspect, and move through your own systems. It can start from email files on disk or from a manual
+IMAP sync into the same workspace.
 
-MailAtlas is useful when you need structured email data that your application can store, inspect,
-and reuse.
+Inbox connectors are useful when you want fast search and question answering across a connected
+account. Generic parsers are useful when you only need low-level MIME access.
 
-## Connector strengths
+## Use MailAtlas when
 
-- fast setup
-- interactive retrieval
-- low-friction search inside chat
+- you are ingesting stored `.eml` files, `mbox` mailbox files, or manually synced IMAP folders
+- you need cleaned text plus links back to raw messages, HTML, and extracted assets
+- you want deterministic inputs for RAG, analytics, auditing, or agent workflows
+- you need reviewable outputs such as JSON, HTML, Markdown, or PDF
 
-## MailAtlas strengths
+## Choose another tool when
 
-- deterministic exports
-- reusable cleaned text, HTML, metadata, assets, and PDF artifacts
-- a default filesystem + SQLite implementation you can inspect or replace
-- benchmarkable parser behavior
-- a stable substrate for RAG, analytics, and archival tooling
+- you need background mailbox sync, hosted storage, or a full mailbox client
+- you want inbox search inside chat without managing your own ingestion layer
+- you only need MIME decoding and do not care about normalized outputs or provenance
+
+## What MailAtlas adds on top of parsing
+
+- configurable cleaning instead of raw body extraction only
+- normalized HTML snapshots and extracted asset references
+- a default filesystem plus SQLite implementation you can inspect or replace
+- repeatable exports and stored document IDs for downstream pipelines

@@ -10,8 +10,8 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
     </a>
     <nav class="topnav" aria-label="Primary">
       <a href="#overview">Overview</a>
-      <a href="#install">Install</a>
-      <a href="#fit">Where It Fits</a>
+      <a href="#inputs">Inputs</a>
+      <a href="#fit">Fit</a>
       <a href="/docs/">Docs</a>
       <a href="https://github.com/chiragagrawal/mailatlas">GitHub</a>
     </nav>
@@ -19,76 +19,167 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
 
   <main class="landing-main">
     <section class="hero" id="overview">
-      <div class="hero-copy">
-        <div class="eyebrow">Open-source email ingestion</div>
-        <h1>Parse email archives into structured documents.</h1>
-        <p class="lede">
-          MailAtlas turns <code>.eml</code> files and <code>mbox</code> archives into cleaned text,
-          HTML snapshots when they exist, extracted assets, metadata, and exportable artifacts your
-          application can index, retrieve, audit, or pass to models.
-        </p>
-        <div class="hero-actions">
-          <a class="button button-primary" href="/docs/getting-started/quickstart/">Read the quickstart</a>
-          <a class="button button-secondary" href="https://github.com/chiragagrawal/mailatlas">Browse the repository</a>
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Email ingestion for AI and data apps</div>
+          <h1>Ingest email into structured data.</h1>
+          <p class="lede">
+            Read <code>.eml</code> files, import <code>mbox</code> mailbox files, or sync selected
+            IMAP folders into one local workspace. MailAtlas keeps raw messages, cleaned text, HTML,
+            assets, and metadata together so the same email can power AI, search, audits, and
+            analytics.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/docs/getting-started/quickstart/">Try file ingest</a>
+            <a class="button button-secondary" href="/docs/getting-started/manual-imap-sync/">See IMAP sync</a>
+          </div>
+          <p class="hero-note">
+            Start with files when your email is already on disk. Use <code>sync imap</code> when you
+            need MailAtlas to connect to a live mailbox and fetch folders incrementally.
+          </p>
+          <div class="hero-meta" aria-label="Core capabilities">
+            <span>Open source</span>
+            <span>No hosted service required</span>
+            <span>Stores IMAP cursors, not mailbox credentials</span>
+            <span>JSON, Markdown, HTML, PDF exports</span>
+          </div>
         </div>
-        <div class="hero-meta" aria-label="Core capabilities">
-          <span>Cleaned text plus source metadata</span>
-          <span>Normalized HTML when the message has HTML</span>
-          <span>Inline asset and attachment extraction</span>
-          <span>JSON, HTML, Markdown, and PDF exports</span>
-        </div>
+
+        <aside class="hero-proof" aria-label="Product model">
+          <div class="eyebrow">Choose an input path</div>
+          <div class="mode-stack">
+            <article class="mode-card">
+              <span class="mode-card-accent">From files</span>
+              <strong><code>ingest eml</code></strong>
+              <p>Read one or more <code>.eml</code> message files already on disk.</p>
+            </article>
+            <article class="mode-card">
+              <span class="mode-card-accent">From files</span>
+              <strong><code>ingest mbox</code></strong>
+              <p>Read an <code>mbox</code> mailbox file already on disk.</p>
+            </article>
+            <article class="mode-card">
+              <span class="mode-card-accent">From live mailbox</span>
+              <strong><code>sync imap</code></strong>
+              <p>Fetch selected folders over IMAP into the same workspace.</p>
+            </article>
+          </div>
+          <div class="flow-caption">All three paths create the same stored document shape.</div>
+          <div class="record-card hero-record">
+            <div class="code-header">stored document</div>
+            <dl class="record-list">
+              <div class="record-row">
+                <dt>source_kind</dt>
+                <dd><code>eml</code>, <code>mbox</code>, or <code>imap</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>raw_path</dt>
+                <dd><code>raw/&lt;document-id&gt;.*</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>body_html_path</dt>
+                <dd><code>html/&lt;document-id&gt;.html</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>assets</dt>
+                <dd><code>assets/&lt;document-id&gt;/...</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>exports</dt>
+                <dd><code>json</code>, <code>markdown</code>, <code>html</code>, <code>pdf</code></dd>
+              </div>
+            </dl>
+          </div>
+        </aside>
       </div>
     </section>
 
-    <section class="proof-grid">
+    <section class="proof-grid" id="inputs">
       <article class="proof-card">
-        <span class="proof-label">Inputs</span>
-        <strong><code>.eml</code> and <code>mbox</code></strong>
-        <p>Use mailbox exports, stored message files, and HTML email sources you already have.</p>
+        <span class="proof-label"><code>.eml</code></span>
+        <strong>One message file on disk</strong>
+        <p>Use this when you already have individual messages saved locally and want the fastest ingest path.</p>
       </article>
       <article class="proof-card">
-        <span class="proof-label">Outputs</span>
-        <strong>Text, HTML, assets, metadata</strong>
-        <p>Store cleaned text for models and keep HTML and files for traceability, rendering, and review.</p>
+        <span class="proof-label"><code>mbox</code></span>
+        <strong>One mailbox file on disk</strong>
+        <p>Use this when another system exported a mailbox file and you want to normalize every message inside it.</p>
       </article>
       <article class="proof-card">
-        <span class="proof-label">Exports</span>
-        <strong>JSON, Markdown, HTML, PDF</strong>
-        <p>Emit reusable application data and reviewable document artifacts from the same stored record.</p>
+        <span class="proof-label"><code>sync imap</code></span>
+        <strong>Selected folders from a live mailbox</strong>
+        <p>Use this when the messages still live in an inbox and you want MailAtlas to fetch them incrementally.</p>
+      </article>
+    </section>
+
+    <section class="content-grid" id="fit">
+      <article class="panel">
+        <div class="eyebrow">Use MailAtlas if</div>
+        <h2>Your goal is reusable application data, not inbox UX.</h2>
+        <ul class="detail-list">
+          <li>You need cleaned text plus links back to the raw email, HTML, and extracted assets.</li>
+          <li>You want one repeatable ingest layer for retrieval, analytics, audit trails, or agent workflows.</li>
+          <li>You care about deterministic exports such as JSON, Markdown, HTML, and PDF.</li>
+          <li>You want to start with files and add manual IMAP sync later without changing the stored shape.</li>
+        </ul>
+      </article>
+
+      <article class="panel">
+        <div class="eyebrow">Do not confuse it with</div>
+        <h2>MailAtlas is an ingestion layer, not a mailbox product.</h2>
+        <ul class="detail-list">
+          <li>It is not background mailbox sync or a managed connector service.</li>
+          <li>It is not hosted inbox search, inbox chat, or a full mailbox client.</li>
+          <li>It is not just a MIME decoder. The point is normalized, inspectable outputs you can reuse.</li>
+          <li>It is not trying to hide the source. Raw provenance stays attached to the stored document.</li>
+        </ul>
       </article>
     </section>
 
     <section class="content-grid" id="install">
       <article class="panel">
-        <div class="eyebrow">Install</div>
-        <h2>Start with the core package.</h2>
+        <div class="eyebrow">Start with files</div>
+        <h2>The quickest proof is fixture-based ingest from disk.</h2>
         <p>
-          The CLI is the main interface. Start with the core install, then add optional extras only
-          if you need the demo API.
+          Install the CLI, ingest the shipped fixtures, and inspect the stored records before
+          pointing MailAtlas at your own email. This is the fastest way to verify the shape and
+          export flow end to end.
         </p>
         <div class="code-block code-block-large">
-          <div class="code-header">recommended</div>
+          <div class="code-header">recommended path</div>
           <pre>python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .</pre>
+python -m pip install -e .
+
+mailatlas ingest eml \
+  data/fixtures/atlas-market-map.eml \
+  data/fixtures/atlas-inline-chart.eml \
+  --db .mailatlas/store.db \
+  --workspace .mailatlas/workspace
+
+mailatlas list \
+  --db .mailatlas/store.db \
+  --workspace .mailatlas/workspace</pre>
         </div>
         <ul class="detail-list detail-list-tight">
           <li>Use <code>python -m pip install -e ".[api]"</code> only if you want the example API.</li>
-          <li>Use <code>uv tool install --from . mailatlas</code> for a local CLI-style install.</li>
-          <li>Use Homebrew once the public tap exists; it is a distribution convenience, not the primary path.</li>
+          <li>Use <code>uv tool install --from . mailatlas</code> for a CLI-style local install.</li>
+          <li>Use <code>sync imap</code> instead when the messages are still in a live mailbox.</li>
+          <li>Export JSON, HTML, or Markdown anywhere with <code>--out</code>; PDF export is optional.</li>
         </ul>
       </article>
 
       <article class="panel">
-        <div class="eyebrow">Default storage</div>
-        <h2>Filesystem files plus SQLite metadata.</h2>
+        <div class="eyebrow">What MailAtlas stores per message</div>
+        <h2>One document, plus links back to raw email and derived artifacts.</h2>
         <p>
-          MailAtlas writes files to the filesystem and indexes them in SQLite by default. Treat that
-          as a reference implementation you can inspect, script against, or replace inside your own service.
+          The default workspace is a reference implementation. It keeps raw bytes, normalized HTML,
+          extracted assets, and SQLite metadata together so you can inspect them locally or move the
+          data into your own services later.
         </p>
         <div class="workspace-grid">
           <div class="code-block code-block-large">
-            <div class="code-header">reference store</div>
+            <div class="code-header">reference workspace</div>
             <pre>.mailatlas/
   store.db
   workspace/
@@ -98,79 +189,33 @@ python -m pip install -e .</pre>
     exports/</pre>
           </div>
           <div class="record-card code-block-large">
-            <div class="code-header">document record</div>
+            <div class="code-header">stored document</div>
             <dl class="record-list">
               <div class="record-row">
                 <dt>subject</dt>
-                <dd>Regional freight signals tighten in the Midwest</dd>
+                <dd>Port dwell times normalize after weather disruptions</dd>
               </div>
               <div class="record-row">
                 <dt>author</dt>
-                <dd>Mapline Research &lt;dispatch@mapline.example&gt;</dd>
-              </div>
-              <div class="record-row">
-                <dt>provenance</dt>
-                <dd><code>is_forwarded: false</code></dd>
+                <dd>Harbor Labs Charts &lt;charts@harborlabs.example&gt;</dd>
               </div>
               <div class="record-row">
                 <dt>cleaning</dt>
-                <dd><code>dropped_line_count: 4</code></dd>
+                <dd><code>dropped_line_count: 0</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>html path</dt>
+                <dd><code>html/&lt;document-id&gt;.html</code></dd>
               </div>
               <div class="record-row">
                 <dt>asset refs</dt>
-                <dd><code>html/body.html</code>, <code>assets/chart.png</code></dd>
+                <dd><code>assets/&lt;document-id&gt;/001-route-heatmap.svg</code></dd>
               </div>
               <div class="record-row">
                 <dt>exports</dt>
-                <dd><code>exports/report.json</code>, <code>exports/report.pdf</code></dd>
+                <dd><code>--out ./document.json</code> or <code>workspace/exports/&lt;document-id&gt;.pdf</code></dd>
               </div>
             </dl>
-          </div>
-        </div>
-        <ul class="detail-list detail-list-tight">
-          <li><code>raw/</code> preserves the original message bytes.</li>
-          <li><code>html/</code> stores a normalized HTML snapshot when the message contains HTML.</li>
-          <li><code>assets/</code> keeps extracted inline images and attachments.</li>
-          <li><code>exports/</code> stores JSON, Markdown, HTML, and PDF exports.</li>
-        </ul>
-      </article>
-    </section>
-
-    <section class="content-grid" id="fit">
-      <article class="panel">
-        <div class="eyebrow">Why AI developers use it</div>
-        <h2>Email is messy. Models work better on normalized inputs.</h2>
-        <ul class="detail-list">
-          <li>Build a retrieval corpus from email without throwing away HTML or attachments.</li>
-          <li>Trace model inputs back to raw messages, extracted assets, and stable metadata.</li>
-          <li>Apply the same cleanup rules in indexing jobs, agents, and evaluation runs.</li>
-          <li>Render PDFs from stored HTML when you need a stable artifact for review or agent handoff.</li>
-        </ul>
-      </article>
-
-      <article class="panel">
-        <div class="eyebrow">Where it fits</div>
-        <h2>More useful than a MIME parser, narrower than a full mailbox platform.</h2>
-        <div class="comparison-table" role="table" aria-label="Comparison">
-          <div class="comparison-row comparison-head" role="row">
-            <span role="columnheader">Option</span>
-            <span role="columnheader">Best at</span>
-            <span role="columnheader">Weak at</span>
-          </div>
-          <div class="comparison-row" role="row">
-            <span role="cell">MailAtlas</span>
-            <span role="cell">Turning email into reusable application data</span>
-            <span role="cell">Live mailbox sync and hosted storage</span>
-          </div>
-          <div class="comparison-row" role="row">
-            <span role="cell">Inbox connectors</span>
-            <span role="cell">Search and question answering across connected tools</span>
-            <span role="cell">Reusable outputs and deterministic ingestion pipelines</span>
-          </div>
-          <div class="comparison-row" role="row">
-            <span role="cell">Generic email parsers</span>
-            <span role="cell">Low-level MIME decoding</span>
-            <span role="cell">Cleaned text, HTML snapshots, asset extraction, and metadata conventions</span>
           </div>
         </div>
       </article>
@@ -178,11 +223,14 @@ python -m pip install -e .</pre>
 
     <section class="footer-cta">
       <div>
-        <div class="eyebrow">Start here</div>
-        <h2>Install it, ingest a fixture, and inspect the output.</h2>
-        <p>The docs focus on the core workflow first: installation, quickstart, schema, CLI, Python API, and parser configuration.</p>
+        <div class="eyebrow">Next steps</div>
+        <h2>Choose files or a live mailbox and inspect the stored shape.</h2>
+        <p>The docs route by task: installation, file quickstart, IMAP sync, CLI, Python, and schema.</p>
       </div>
-      <a class="button button-primary" href="/docs/getting-started/installation/">Open the docs</a>
+      <div class="hero-actions">
+        <a class="button button-primary" href="/docs/getting-started/quickstart/">Open file quickstart</a>
+        <a class="button button-secondary" href="/docs/getting-started/manual-imap-sync/">Open IMAP guide</a>
+      </div>
     </section>
   </main>
 </MarketingLayout>

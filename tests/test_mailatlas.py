@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import imaplib
+import io
 import mailbox
 import json
 import os
@@ -12,8 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import mailatlas.cli as mailatlas_cli
 from mailatlas.ai import generate_brief
-from mailatlas.core import MailAtlas, ParserConfig, parse_eml
+from mailatlas.core import ImapFolderSyncResult, ImapSyncConfig, ImapSyncResult, MailAtlas, ParserConfig, parse_eml
 from mailatlas.core import pdf as pdf_module
 
 
@@ -102,6 +105,92 @@ def _html_inline_message() -> EmailMessage:
     html_part = message.get_payload()[1]
     html_part.add_related(SVG_BYTES, maintype="image", subtype="svg+xml", cid="<chart-1>", filename="chart.svg")
     return message
+
+
+def _imap_message_bytes(subject: str, message_id: str) -> bytes:
+    message = _plain_message(subject)
+    message.replace_header("Message-ID", message_id)
+    return message.as_bytes()
+
+
+def _unquote_mailbox(mailbox: str) -> str:
+    value = mailbox
+    if value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
+    return value.replace('\\"', '"').replace("\\\\", "\\")
+
+
+class FakeImapConnection:
+    def __init__(
+        self,
+        mailboxes: dict[str, dict[str, object]],
+        *,
+        fail_select: set[str] | None = None,
+        fail_fetch: set[tuple[str, int]] | None = None,
+        auth_error: str | None = None,
+    ) -> None:
+        self.mailboxes = mailboxes
+        self.fail_select = fail_select or set()
+        self.fail_fetch = fail_fetch or set()
+        self.auth_error = auth_error
+        self.selected_folder: str | None = None
+        self.login_calls: list[tuple[str, str]] = []
+        self.authenticate_calls: list[tuple[str, bytes]] = []
+        self.fetch_calls: list[tuple[str, int]] = []
+        self.logout_calls = 0
+
+    def login(self, username: str, password: str):
+        if self.auth_error:
+            raise imaplib.IMAP4.error(self.auth_error)
+        self.login_calls.append((username, password))
+        return "OK", [b"LOGIN completed"]
+
+    def authenticate(self, mechanism: str, callback):
+        if self.auth_error:
+            raise imaplib.IMAP4.error(self.auth_error)
+        self.authenticate_calls.append((mechanism, callback(b"")))
+        return "OK", [b"AUTH completed"]
+
+    def select(self, mailbox: str, readonly: bool = False):
+        folder = _unquote_mailbox(mailbox)
+        if folder in self.fail_select:
+            return "NO", [b"cannot select mailbox"]
+        if folder not in self.mailboxes:
+            return "NO", [b"unknown mailbox"]
+        self.selected_folder = folder
+        message_count = len(self.mailboxes[folder]["messages"])
+        return "OK", [str(message_count).encode("ascii")]
+
+    def response(self, code: str):
+        if code.upper() == "UIDVALIDITY" and self.selected_folder:
+            uidvalidity = self.mailboxes[self.selected_folder]["uidvalidity"]
+            return code, [str(uidvalidity).encode("ascii")]
+        return code, [None]
+
+    def uid(self, command: str, *args):
+        if not self.selected_folder:
+            return "NO", [b"no mailbox selected"]
+
+        command = command.upper()
+        messages: dict[int, bytes] = self.mailboxes[self.selected_folder]["messages"]  # type: ignore[assignment]
+
+        if command == "SEARCH":
+            payload = b" ".join(str(uid).encode("ascii") for uid in sorted(messages))
+            return "OK", [payload]
+
+        if command == "FETCH":
+            uid = int(args[0])
+            self.fetch_calls.append((self.selected_folder, uid))
+            if (self.selected_folder, uid) in self.fail_fetch:
+                return "NO", [b"fetch failed"]
+            raw_bytes = messages[uid]
+            return "OK", [(f"{uid} (RFC822 {{{len(raw_bytes)}}})".encode("ascii"), raw_bytes), b")"]
+
+        raise AssertionError(f"Unsupported IMAP UID command: {command}")
+
+    def logout(self):
+        self.logout_calls += 1
+        return "BYE", [b"LOGOUT completed"]
 
 
 class MailAtlasTests(unittest.TestCase):
@@ -227,6 +316,304 @@ class MailAtlasTests(unittest.TestCase):
 
             self.assertEqual(len(first), 2)
             self.assertEqual(first[0].id, second[0].id)
+
+    def test_sync_imap_password_ingests_multiple_folders_and_tracks_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("Inbox One", "<imap-1@example.com>"),
+                            2: _imap_message_bytes("Inbox Two", "<imap-2@example.com>"),
+                        },
+                    },
+                    "Archive": {
+                        "uidvalidity": 202,
+                        "messages": {
+                            8: _imap_message_bytes("Inbox Two", "<imap-2@example.com>"),
+                        },
+                    },
+                }
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                result = atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                        folders=("INBOX", "Archive"),
+                    )
+                )
+
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(connection.login_calls, [("user@example.com", "app-password")])
+            self.assertEqual(len(result.folders), 2)
+            self.assertEqual(result.folders[0].ingested_count, 2)
+            self.assertEqual(result.folders[1].duplicate_count, 1)
+            self.assertEqual(len(atlas.list_documents()), 2)
+
+            exported = json.loads(atlas.export_document(result.folders[0].document_refs[0].id, format="json"))
+            self.assertEqual(exported["source_kind"], "imap")
+            self.assertEqual(exported["metadata"]["source"]["kind"], "imap")
+            self.assertEqual(exported["metadata"]["source"]["host"], "imap.example.com")
+            self.assertEqual(exported["metadata"]["source"]["folder"], "INBOX")
+            self.assertEqual(exported["metadata"]["source"]["uid"], 1)
+            self.assertEqual(exported["metadata"]["source"]["uidvalidity"], "101")
+            self.assertTrue(exported["raw_path"].endswith(".eml"))
+
+            inbox_state = atlas.store.get_imap_sync_state("imap.example.com", 993, "user@example.com", "INBOX")
+            archive_state = atlas.store.get_imap_sync_state("imap.example.com", 993, "user@example.com", "Archive")
+            self.assertEqual(inbox_state.uidvalidity, "101")
+            self.assertEqual(inbox_state.last_uid, 2)
+            self.assertEqual(archive_state.uidvalidity, "202")
+            self.assertEqual(archive_state.last_uid, 8)
+
+    def test_sync_imap_incremental_runs_fetch_only_new_uids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("One", "<imap-1@example.com>"),
+                            2: _imap_message_bytes("Two", "<imap-2@example.com>"),
+                        },
+                    }
+                }
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                first = atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                    )
+                )
+                connection.mailboxes["INBOX"]["messages"][3] = _imap_message_bytes("Three", "<imap-3@example.com>")
+                second = atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                    )
+                )
+
+            self.assertEqual(first.folders[0].fetched_count, 2)
+            self.assertEqual(second.folders[0].fetched_count, 1)
+            self.assertEqual(second.folders[0].ingested_count, 1)
+            self.assertEqual(connection.fetch_calls, [("INBOX", 1), ("INBOX", 2), ("INBOX", 3)])
+            state = atlas.store.get_imap_sync_state("imap.example.com", 993, "user@example.com", "INBOX")
+            self.assertEqual(state.last_uid, 3)
+
+    def test_sync_imap_uidvalidity_reset_rescans_and_dedupes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("One", "<imap-1@example.com>"),
+                            2: _imap_message_bytes("Two", "<imap-2@example.com>"),
+                        },
+                    }
+                }
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                    )
+                )
+                connection.mailboxes["INBOX"]["uidvalidity"] = 303
+                second = atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                    )
+                )
+
+            self.assertEqual(second.folders[0].fetched_count, 2)
+            self.assertEqual(second.folders[0].duplicate_count, 2)
+            self.assertEqual(len(atlas.list_documents()), 2)
+            self.assertEqual(connection.fetch_calls[-2:], [("INBOX", 1), ("INBOX", 2)])
+            state = atlas.store.get_imap_sync_state("imap.example.com", 993, "user@example.com", "INBOX")
+            self.assertEqual(state.uidvalidity, "303")
+            self.assertEqual(state.last_uid, 2)
+
+    def test_sync_imap_xoauth2_uses_access_token_authentication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 777,
+                        "messages": {
+                            4: _imap_message_bytes("Token Auth", "<imap-token@example.com>"),
+                        },
+                    }
+                }
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="oauth-user@example.com",
+                        auth="xoauth2",
+                        access_token="access-token",
+                    )
+                )
+
+            self.assertEqual(connection.login_calls, [])
+            self.assertEqual(connection.authenticate_calls[0][0], "XOAUTH2")
+            self.assertIn(b"user=oauth-user@example.com", connection.authenticate_calls[0][1])
+            self.assertIn(b"auth=Bearer access-token", connection.authenticate_calls[0][1])
+
+    def test_sync_imap_folder_error_does_not_stop_other_folders(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("Healthy", "<imap-healthy@example.com>"),
+                        },
+                    },
+                    "Broken": {
+                        "uidvalidity": 202,
+                        "messages": {
+                            5: _imap_message_bytes("Broken", "<imap-broken@example.com>"),
+                        },
+                    },
+                },
+                fail_select={"Broken"},
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                result = atlas.sync_imap(
+                    ImapSyncConfig(
+                        host="imap.example.com",
+                        username="user@example.com",
+                        password="app-password",
+                        folders=("INBOX", "Broken"),
+                    )
+                )
+
+            self.assertTrue(result.has_errors())
+            self.assertEqual(result.folders[0].status, "ok")
+            self.assertEqual(result.folders[1].status, "error")
+            self.assertEqual(len(atlas.list_documents()), 1)
+            broken_state = atlas.store.get_imap_sync_state("imap.example.com", 993, "user@example.com", "Broken")
+            self.assertEqual(broken_state.status, "error")
+            self.assertEqual(broken_state.last_uid, 0)
+
+    def test_cli_sync_imap_uses_env_defaults_and_cli_precedence(self) -> None:
+        result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
+
+        with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result) as sync_mock:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "MAILATLAS_IMAP_HOST": "env.example.com",
+                    "MAILATLAS_IMAP_PORT": "1993",
+                    "MAILATLAS_IMAP_USERNAME": "env-user@example.com",
+                    "MAILATLAS_IMAP_PASSWORD": "env-secret",
+                },
+                clear=False,
+            ):
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    exit_code = mailatlas_cli.main(["sync", "imap", "--db", ".mailatlas/store.db", "--workspace", ".mailatlas/workspace"])
+                    env_config = sync_mock.call_args.args[0]
+
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    override_code = mailatlas_cli.main(
+                        [
+                            "sync",
+                            "imap",
+                            "--db",
+                            ".mailatlas/store.db",
+                            "--workspace",
+                            ".mailatlas/workspace",
+                            "--host",
+                            "cli.example.com",
+                            "--username",
+                            "cli-user@example.com",
+                            "--password",
+                            "cli-secret",
+                            "--folder",
+                            "Inbox/Subfolder",
+                        ]
+                    )
+                    cli_config = sync_mock.call_args.args[0]
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(env_config.host, "env.example.com")
+        self.assertEqual(env_config.port, 1993)
+        self.assertEqual(env_config.username, "env-user@example.com")
+        self.assertEqual(env_config.password, "env-secret")
+        self.assertEqual(env_config.folders, ("INBOX",))
+        self.assertEqual(override_code, 0)
+        self.assertEqual(cli_config.host, "cli.example.com")
+        self.assertEqual(cli_config.username, "cli-user@example.com")
+        self.assertEqual(cli_config.password, "cli-secret")
+        self.assertEqual(cli_config.folders, ("Inbox/Subfolder",))
+
+    def test_cli_sync_imap_returns_nonzero_when_any_folder_fails(self) -> None:
+        result = ImapSyncResult(
+            host="imap.example.com",
+            port=993,
+            username="user@example.com",
+            auth="password",
+            folders=[
+                ImapFolderSyncResult(
+                    folder="INBOX",
+                    status="error",
+                    uidvalidity="101",
+                    last_uid=0,
+                    fetched_count=0,
+                    ingested_count=0,
+                    duplicate_count=0,
+                    error="cannot select mailbox",
+                )
+            ],
+        )
+
+        with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result):
+            with mock.patch("sys.stdout", new_callable=io.StringIO):
+                exit_code = mailatlas_cli.main(
+                    [
+                        "sync",
+                        "imap",
+                        "--db",
+                        ".mailatlas/store.db",
+                        "--workspace",
+                        ".mailatlas/workspace",
+                        "--host",
+                        "imap.example.com",
+                        "--username",
+                        "user@example.com",
+                        "--password",
+                        "secret",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 1)
 
     def test_export_json_is_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

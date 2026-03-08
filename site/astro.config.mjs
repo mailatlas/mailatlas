@@ -29,13 +29,20 @@ export default defineConfig({
             },
             "docs/getting-started/installation",
             "docs/getting-started/quickstart",
+            "docs/getting-started/manual-imap-sync",
+            {
+              label: "When to Use MailAtlas",
+              link: "/docs/marketing/why-not-connectors/",
+            },
           ],
         },
         {
-          label: "Concepts",
+          label: "Reference",
           items: [
             "docs/concepts/workspace-model",
             "docs/concepts/document-schema",
+            "docs/config/parser-cleaning",
+            "docs/concepts/glossary",
           ],
         },
         {
@@ -43,7 +50,6 @@ export default defineConfig({
           items: [
             "docs/cli/overview",
             "docs/python/overview",
-            "docs/config/parser-cleaning",
           ],
         },
         {
@@ -54,9 +60,8 @@ export default defineConfig({
           ],
         },
         {
-          label: "Background",
+          label: "Product",
           items: [
-            "docs/marketing/why-not-connectors",
             "docs/marketing/security-and-privacy",
             "docs/marketing/roadmap",
           ],
