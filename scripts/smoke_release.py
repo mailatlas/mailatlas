@@ -35,12 +35,9 @@ def main() -> int:
         _run(
             cli_bin.as_posix(),
             "ingest",
-            "eml",
             str(Path(temp_dir) / "fixtures" / "atlas-market-map.eml"),
-            "--db",
-            str(Path(temp_dir) / ".mailatlas" / "store.db"),
-            "--workspace",
-            str(Path(temp_dir) / ".mailatlas" / "workspace"),
+            "--root",
+            str(Path(temp_dir) / ".mailatlas"),
         )
     return 0
 

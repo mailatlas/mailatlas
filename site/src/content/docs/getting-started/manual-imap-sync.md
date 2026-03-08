@@ -1,6 +1,6 @@
 ---
 title: Manual IMAP Sync
-description: Connect MailAtlas to a live mailbox and fetch selected IMAP folders into the local workspace.
+description: Connect MailAtlas to a live mailbox and fetch selected IMAP folders into the local store.
 slug: docs/getting-started/manual-imap-sync
 ---
 
@@ -14,7 +14,7 @@ mailbox. MailAtlas stores sync cursors in SQLite so later runs can continue incr
 ## Before you start
 
 - You need an existing MailAtlas install.
-- Choose one auth mode: password or OAuth access token.
+- Choose one credential type: password or OAuth access token.
 - Decide which folders to fetch. `INBOX` is the default.
 - MailAtlas stores IMAP sync state in SQLite. It does not persist mailbox credentials.
 - Bring your own OAuth token if your provider requires OAuth. MailAtlas consumes the access token;
@@ -45,22 +45,17 @@ MailAtlas at runtime.
 ## 2. Sync one or more folders
 
 ```bash
-mailatlas sync imap \
-  --auth password \
+mailatlas sync \
   --folder INBOX \
-  --folder Newsletters \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --folder Newsletters
 ```
 
-If you are using OAuth, change `--auth password` to `--auth xoauth2`.
-
-You can also pass `--access-token ...` directly on the command line instead of using an environment
-variable, but env vars or another local secret source are usually easier to avoid shell history.
+If you need a one-off override instead of env vars, you can pass `--password ...` or
+`--access-token ...` directly on the command line.
 
 ## 3. Read the sync summary
 
-`sync imap` prints one JSON object that summarizes the run and then lists each folder result:
+`sync` prints one JSON object that summarizes the run and then lists each folder result:
 
 ```json
 {
@@ -97,25 +92,21 @@ variable, but env vars or another local secret source are usually easier to avoi
 }
 ```
 
-Use the returned `document_refs[].id` values with `mailatlas show` or `mailatlas export`.
+Use the returned `document_refs[].id` values with `mailatlas get`.
 
 ## 4. Inspect or export stored documents
 
 ```bash
-mailatlas list \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas list
 
-mailatlas show <document-id> \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas get <document-id>
 ```
 
 ## Incremental reruns
 
-When you rerun the same folder sync against the same `--db`, MailAtlas uses stored IMAP cursor
-state to fetch only newer messages when possible. If you point the command at a different database,
-you start a fresh sync history.
+When you rerun the same folder sync against the same root, MailAtlas uses stored IMAP cursor state
+to fetch only newer messages when possible. If you point the command at a different root, you
+start a fresh sync history.
 
 ## OAuth developer story
 
@@ -130,7 +121,7 @@ MailAtlas itself.
 
 ## Parser cleaning during sync
 
-`sync imap` accepts the same cleaning flags as file ingest, including:
+`sync` accepts the same cleaning flags as file ingest, including:
 
 - `--strip-forwarded-headers`
 - `--strip-boilerplate`

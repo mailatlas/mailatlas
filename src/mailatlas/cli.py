@@ -3,21 +3,88 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+from pathlib import Path
 
 from mailatlas.adapters.imap import ImapSyncError
-from mailatlas.ai import generate_brief
 from mailatlas.core import ImapSyncConfig, MailAtlas, ParserConfig
 
 
-def _workspace_defaults() -> tuple[str, str]:
-    return ".mailatlas/store.db", ".mailatlas/workspace"
+def _root_parent_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="MailAtlas root directory. Defaults to MAILATLAS_HOME, project config, or ./.mailatlas.",
+    )
+    return parser
 
 
-def _add_workspace_arguments(parser: argparse.ArgumentParser) -> None:
-    db_default, workspace_default = _workspace_defaults()
-    parser.add_argument("--db", default=db_default, help="SQLite database path.")
-    parser.add_argument("--workspace", default=workspace_default, help="Workspace directory path.")
+def _parse_root_setting(config_path: Path, *, pyproject: bool) -> str | None:
+    text = config_path.read_text(encoding="utf-8")
+    current_section: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1].strip()
+            continue
+
+        if not re.match(r"^root\s*=", line):
+            continue
+
+        if pyproject and current_section != "tool.mailatlas":
+            continue
+        if not pyproject and current_section not in {None, "mailatlas"}:
+            continue
+
+        _, _, remainder = line.partition("=")
+        value = remainder.split("#", 1)[0].strip().strip("'\"")
+        if value:
+            return value
+
+    return None
+
+
+def _configured_root_from_directory(directory: Path) -> Path | None:
+    config_path = directory / ".mailatlas.toml"
+    if config_path.exists():
+        root_value = _parse_root_setting(config_path, pyproject=False)
+        if root_value:
+            return (directory / root_value).expanduser().resolve()
+
+    pyproject_path = directory / "pyproject.toml"
+    if pyproject_path.exists():
+        root_value = _parse_root_setting(pyproject_path, pyproject=True)
+        if root_value:
+            return (directory / root_value).expanduser().resolve()
+
+    return None
+
+
+def _resolve_root(root_value: str | None) -> Path:
+    if root_value:
+        return Path(root_value).expanduser().resolve()
+
+    env_root = os.getenv("MAILATLAS_HOME")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    cwd = Path.cwd().resolve()
+    for directory in [cwd, *cwd.parents]:
+        configured = _configured_root_from_directory(directory)
+        if configured is not None:
+            return configured
+
+    return (cwd / ".mailatlas").resolve()
+
+
+def _workspace_paths_from_root(root: Path) -> tuple[Path, Path]:
+    return root / "store.db", root
 
 
 def _add_parser_config_arguments(parser: argparse.ArgumentParser) -> None:
@@ -84,6 +151,15 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
     access_token = _env_or_value(args.access_token, "MAILATLAS_IMAP_ACCESS_TOKEN")
     folders = tuple(args.folder or ["INBOX"])
 
+    if password and access_token:
+        raise ValueError("Choose either password auth or access-token auth, not both.")
+    if access_token:
+        auth = "xoauth2"
+    elif password:
+        auth = "password"
+    else:
+        raise ValueError("Provide either an IMAP password or an IMAP access token.")
+
     try:
         port = int(port_raw or "993")
     except ValueError as error:
@@ -93,7 +169,7 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
         host=host or "",
         port=port,
         username=username or "",
-        auth=args.auth,
+        auth=auth,
         password=password,
         access_token=access_token,
         folders=folders,
@@ -101,83 +177,102 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
     )
 
 
+def _infer_ingest_type(path_value: str | Path) -> str:
+    suffix = Path(path_value).suffix.lower()
+    if suffix == ".eml":
+        return "eml"
+    if suffix == ".mbox":
+        return "mbox"
+    raise ValueError(f"Could not infer input type for {path_value}. Use --type eml or --type mbox.")
+
+
+def _ingest_results_from_args(atlas: MailAtlas, args: argparse.Namespace) -> list:
+    if args.type == "eml":
+        return atlas.ingest_eml_results(args.paths)
+    if args.type == "mbox":
+        results = []
+        for path in args.paths:
+            results.extend(atlas.ingest_mbox_results(path))
+        return results
+
+    eml_paths: list[str] = []
+    mbox_paths: list[str] = []
+    for path in args.paths:
+        input_type = _infer_ingest_type(path)
+        if input_type == "eml":
+            eml_paths.append(path)
+        else:
+            mbox_paths.append(path)
+
+    results = []
+    if eml_paths:
+        results.extend(atlas.ingest_eml_results(eml_paths))
+    for path in mbox_paths:
+        results.extend(atlas.ingest_mbox_results(path))
+    return results
+
+
 def _build_parser() -> argparse.ArgumentParser:
+    root_parent = _root_parent_parser()
     parser = argparse.ArgumentParser(
         prog="mailatlas",
         description="Email ingestion for AI agents and data applications.",
+        parents=[root_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ingest_parser = subparsers.add_parser("ingest", help="Ingest content into the local workspace.")
-    ingest_subparsers = ingest_parser.add_subparsers(dest="ingest_command", required=True)
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Ingest one or more email sources from disk.",
+        parents=[root_parent],
+    )
+    ingest_parser.add_argument("paths", nargs="+", help="Paths to .eml files or mbox archives.")
+    ingest_parser.add_argument(
+        "--type",
+        choices=["auto", "eml", "mbox"],
+        default="auto",
+        help="Override automatic input-type detection.",
+    )
+    _add_parser_config_arguments(ingest_parser)
 
-    ingest_eml_parser = ingest_subparsers.add_parser("eml", help="Ingest .eml files.")
-    ingest_eml_parser.add_argument("paths", nargs="+", help="EML file paths to ingest.")
-    _add_workspace_arguments(ingest_eml_parser)
-    _add_parser_config_arguments(ingest_eml_parser)
-
-    ingest_mbox_parser = ingest_subparsers.add_parser("mbox", help="Ingest an mbox archive.")
-    ingest_mbox_parser.add_argument("path", help="Path to an mbox file.")
-    _add_workspace_arguments(ingest_mbox_parser)
-    _add_parser_config_arguments(ingest_mbox_parser)
-
-    show_parser = subparsers.add_parser("show", help="Show a stored document as JSON.")
-    show_parser.add_argument("document_id", help="Document identifier.")
-    show_parser.add_argument("--format", choices=["json"], default="json", help="Output format.")
-    _add_workspace_arguments(show_parser)
-
-    export_parser = subparsers.add_parser("export", help="Export a stored document.")
-    export_parser.add_argument("document_id", help="Document identifier.")
-    export_parser.add_argument(
+    get_parser = subparsers.add_parser(
+        "get",
+        help="Read or export a stored document.",
+        parents=[root_parent],
+    )
+    get_parser.add_argument("document_id", help="Document identifier.")
+    get_parser.add_argument(
         "--format",
         choices=["json", "markdown", "html", "pdf"],
         default="json",
-        help="Export format.",
+        help="Output format.",
     )
-    export_parser.add_argument("--out", default=None, help="Optional path to write the export.")
-    _add_workspace_arguments(export_parser)
+    get_parser.add_argument("--out", default=None, help="Optional path to write the output.")
 
-    list_parser = subparsers.add_parser("list", help="List stored documents.")
+    list_parser = subparsers.add_parser("list", help="List stored documents.", parents=[root_parent])
     list_parser.add_argument("--query", default=None, help="Optional substring query.")
-    _add_workspace_arguments(list_parser)
 
-    brief_parser = subparsers.add_parser("brief", help="Generate a briefing from stored documents.")
-    brief_subparsers = brief_parser.add_subparsers(dest="brief_command", required=True)
-
-    brief_generate_parser = brief_subparsers.add_parser("generate", help="Generate a briefing.")
-    brief_generate_parser.add_argument("--query", default=None, help="Optional substring query for document selection.")
-    brief_generate_parser.add_argument("--ids", nargs="*", default=None, help="Explicit document identifiers.")
-    brief_generate_parser.add_argument("--out", default=None, help="Output HTML path.")
-    brief_generate_parser.add_argument("--provider", default="fallback", help="Brief provider: fallback, openai, anthropic, google.")
-    _add_workspace_arguments(brief_generate_parser)
-
-    sync_parser = subparsers.add_parser("sync", help="Sync content from external sources.")
-    sync_subparsers = sync_parser.add_subparsers(dest="sync_command", required=True)
-
-    sync_imap_parser = sync_subparsers.add_parser("imap", help="Sync one or more IMAP folders.")
-    sync_imap_parser.add_argument("--host", default=None, help="IMAP hostname or use MAILATLAS_IMAP_HOST.")
-    sync_imap_parser.add_argument("--port", type=int, default=None, help="IMAP TLS port or use MAILATLAS_IMAP_PORT.")
-    sync_imap_parser.add_argument("--username", default=None, help="IMAP username or use MAILATLAS_IMAP_USERNAME.")
-    sync_imap_parser.add_argument(
-        "--auth",
-        choices=["password", "xoauth2"],
-        default="password",
-        help="Authentication mode.",
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="Sync one or more IMAP folders.",
+        parents=[root_parent],
     )
-    sync_imap_parser.add_argument("--password", default=None, help="IMAP password or use MAILATLAS_IMAP_PASSWORD.")
-    sync_imap_parser.add_argument(
+    sync_parser.add_argument("--host", default=None, help="IMAP hostname or use MAILATLAS_IMAP_HOST.")
+    sync_parser.add_argument("--port", type=int, default=None, help="IMAP TLS port or use MAILATLAS_IMAP_PORT.")
+    sync_parser.add_argument("--username", default=None, help="IMAP username or use MAILATLAS_IMAP_USERNAME.")
+    sync_parser.add_argument("--password", default=None, help="IMAP password or use MAILATLAS_IMAP_PASSWORD.")
+    sync_parser.add_argument(
         "--access-token",
         default=None,
         help="OAuth access token or use MAILATLAS_IMAP_ACCESS_TOKEN.",
     )
-    sync_imap_parser.add_argument(
+    sync_parser.add_argument(
         "--folder",
         action="append",
         default=None,
         help="Folder to sync. Repeat for multiple folders. Defaults to INBOX.",
     )
-    _add_workspace_arguments(sync_imap_parser)
-    _add_parser_config_arguments(sync_imap_parser)
+    _add_parser_config_arguments(sync_parser)
 
     return parser
 
@@ -185,31 +280,29 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    root = _resolve_root(args.root)
+    db_path, workspace_path = _workspace_paths_from_root(root)
     parser_config = _parser_config_from_args(args) if args.command == "ingest" else None
-    atlas = MailAtlas(db_path=args.db, workspace_path=args.workspace, parser_config=parser_config)
+    atlas = MailAtlas(db_path=db_path, workspace_path=workspace_path, parser_config=parser_config)
 
-    if args.command == "ingest" and args.ingest_command == "eml":
-        refs = atlas.ingest_eml(args.paths)
-        print(json.dumps([reference.to_dict() for reference in refs], indent=2))
-        return 0
+    if args.command == "ingest":
+        try:
+            results = _ingest_results_from_args(atlas, args)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
 
-    if args.command == "ingest" and args.ingest_command == "mbox":
-        refs = atlas.ingest_mbox(args.path)
-        print(json.dumps([reference.to_dict() for reference in refs], indent=2))
-        return 0
-
-    if args.command == "show":
-        document = atlas.get_document(args.document_id)
-        print(json.dumps(document.to_dict(), indent=2))
-        return 0
-
-    if args.command == "export":
-        result = atlas.export_document(
-            args.document_id,
-            format=args.format,
-            out_path=args.out,
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "ingested_count": sum(1 for result in results if result.status == "ingested"),
+                    "duplicate_count": sum(1 for result in results if result.status == "duplicate"),
+                    "document_refs": [result.ref.to_dict() for result in results],
+                },
+                indent=2,
+            )
         )
-        print(result)
         return 0
 
     if args.command == "list":
@@ -217,19 +310,20 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([reference.to_dict() for reference in refs], indent=2))
         return 0
 
-    if args.command == "brief" and args.brief_command == "generate":
-        output_path = generate_brief(
-            document_ids=args.ids or None,
-            query=args.query,
-            output_path=args.out,
-            model_config={"provider": args.provider},
-            db_path=args.db,
-            workspace_path=args.workspace,
-        )
-        print(output_path)
+    if args.command == "get":
+        try:
+            if args.out or args.format == "pdf":
+                print(atlas.export_document(args.document_id, format=args.format, out_path=args.out))
+            elif args.format == "json":
+                print(json.dumps(atlas.get_document(args.document_id).to_dict(), indent=2))
+            else:
+                sys.stdout.write(atlas.export_document(args.document_id, format=args.format))
+        except (KeyError, RuntimeError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
         return 0
 
-    if args.command == "sync" and args.sync_command == "imap":
+    if args.command == "sync":
         try:
             result = atlas.sync_imap(_imap_sync_config_from_args(args))
         except (ImapSyncError, ValueError) as error:

@@ -13,7 +13,7 @@ MailAtlas service.
 - raw message bytes on disk
 - normalized HTML and extracted assets on disk
 - document metadata and parser notes in SQLite
-- IMAP sync cursor state in SQLite when you use `sync imap`
+- IMAP sync cursor state in SQLite when you use `sync`
 - exported artifacts wherever you tell MailAtlas to write them
 
 ## What it does not do by default

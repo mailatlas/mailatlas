@@ -5,6 +5,7 @@ import io
 import mailbox
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mailatlas.cli as mailatlas_cli
-from mailatlas.ai import generate_brief
 from mailatlas.core import ImapFolderSyncResult, ImapSyncConfig, ImapSyncResult, MailAtlas, ParserConfig, parse_eml
 from mailatlas.core import pdf as pdf_module
 
@@ -523,58 +523,60 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(broken_state.status, "error")
             self.assertEqual(broken_state.last_uid, 0)
 
-    def test_cli_sync_imap_uses_env_defaults_and_cli_precedence(self) -> None:
+    def test_cli_sync_uses_env_defaults_and_cli_precedence(self) -> None:
         result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
 
-        with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result) as sync_mock:
-            with mock.patch.dict(
-                os.environ,
-                {
-                    "MAILATLAS_IMAP_HOST": "env.example.com",
-                    "MAILATLAS_IMAP_PORT": "1993",
-                    "MAILATLAS_IMAP_USERNAME": "env-user@example.com",
-                    "MAILATLAS_IMAP_PASSWORD": "env-secret",
-                },
-                clear=False,
-            ):
-                with mock.patch("sys.stdout", new_callable=io.StringIO):
-                    exit_code = mailatlas_cli.main(["sync", "imap", "--db", ".mailatlas/store.db", "--workspace", ".mailatlas/workspace"])
-                    env_config = sync_mock.call_args.args[0]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
 
-                with mock.patch("sys.stdout", new_callable=io.StringIO):
-                    override_code = mailatlas_cli.main(
-                        [
-                            "sync",
-                            "imap",
-                            "--db",
-                            ".mailatlas/store.db",
-                            "--workspace",
-                            ".mailatlas/workspace",
-                            "--host",
-                            "cli.example.com",
-                            "--username",
-                            "cli-user@example.com",
-                            "--password",
-                            "cli-secret",
-                            "--folder",
-                            "Inbox/Subfolder",
-                        ]
-                    )
-                    cli_config = sync_mock.call_args.args[0]
+            with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result) as sync_mock:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "MAILATLAS_IMAP_HOST": "env.example.com",
+                        "MAILATLAS_IMAP_PORT": "1993",
+                        "MAILATLAS_IMAP_USERNAME": "env-user@example.com",
+                        "MAILATLAS_IMAP_PASSWORD": "env-secret",
+                    },
+                    clear=False,
+                ):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        exit_code = mailatlas_cli.main(["sync", "--root", root.as_posix()])
+                        env_config = sync_mock.call_args.args[0]
+
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        override_code = mailatlas_cli.main(
+                            [
+                                "sync",
+                                "--root",
+                                root.as_posix(),
+                                "--host",
+                                "cli.example.com",
+                                "--username",
+                                "cli-user@example.com",
+                                "--password",
+                                "cli-secret",
+                                "--folder",
+                                "Inbox/Subfolder",
+                            ]
+                        )
+                        cli_config = sync_mock.call_args.args[0]
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(env_config.host, "env.example.com")
         self.assertEqual(env_config.port, 1993)
         self.assertEqual(env_config.username, "env-user@example.com")
         self.assertEqual(env_config.password, "env-secret")
+        self.assertEqual(env_config.auth, "password")
         self.assertEqual(env_config.folders, ("INBOX",))
         self.assertEqual(override_code, 0)
         self.assertEqual(cli_config.host, "cli.example.com")
         self.assertEqual(cli_config.username, "cli-user@example.com")
         self.assertEqual(cli_config.password, "cli-secret")
+        self.assertEqual(cli_config.auth, "password")
         self.assertEqual(cli_config.folders, ("Inbox/Subfolder",))
 
-    def test_cli_sync_imap_returns_nonzero_when_any_folder_fails(self) -> None:
+    def test_cli_sync_returns_nonzero_when_any_folder_fails(self) -> None:
         result = ImapSyncResult(
             host="imap.example.com",
             port=993,
@@ -594,26 +596,91 @@ class MailAtlasTests(unittest.TestCase):
             ],
         )
 
-        with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result):
-            with mock.patch("sys.stdout", new_callable=io.StringIO):
-                exit_code = mailatlas_cli.main(
-                    [
-                        "sync",
-                        "imap",
-                        "--db",
-                        ".mailatlas/store.db",
-                        "--workspace",
-                        ".mailatlas/workspace",
-                        "--host",
-                        "imap.example.com",
-                        "--username",
-                        "user@example.com",
-                        "--password",
-                        "secret",
-                    ]
-                )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result):
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "sync",
+                            "--root",
+                            root.as_posix(),
+                            "--host",
+                            "imap.example.com",
+                            "--username",
+                            "user@example.com",
+                            "--password",
+                            "secret",
+                        ]
+                    )
 
         self.assertEqual(exit_code, 1)
+
+    def test_cli_ingest_auto_detects_inputs_and_reports_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "plain.eml"
+            archive_path = root / "mailbox.mbox"
+            storage_root = root / "mailatlas-root"
+            _write_message(eml_path, _plain_message())
+
+            archive = mailbox.mbox(archive_path)
+            archive.lock()
+            try:
+                archive_message = _plain_message("Archive One")
+                archive_message.replace_header("Message-ID", "<archive-1@example.com>")
+                archive.add(archive_message)
+                archive.flush()
+            finally:
+                archive.unlock()
+                archive.close()
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                exit_code = mailatlas_cli.main(["ingest", "--root", storage_root.as_posix(), eml_path.as_posix(), archive_path.as_posix()])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["ingested_count"], 2)
+            self.assertEqual(payload["duplicate_count"], 0)
+            self.assertEqual(len(payload["document_refs"]), 2)
+
+    def test_cli_get_outputs_json_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "plain.eml"
+            storage_root = root / "mailatlas-root"
+            _write_message(eml_path, _plain_message())
+
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            refs = atlas.ingest_eml([eml_path])
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                exit_code = mailatlas_cli.main(["get", "--root", storage_root.as_posix(), refs[0].id])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["id"], refs[0].id)
+            self.assertEqual(payload["subject"], "Plain Subject")
+
+    def test_resolve_root_uses_env_before_project_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            (project_root / "pyproject.toml").write_text(
+                "[tool.mailatlas]\nroot = \".mailatlas-from-config\"\n",
+                encoding="utf-8",
+            )
+            env_root = project_root / "env-root"
+            current_dir = Path.cwd()
+            try:
+                os.chdir(project_root)
+                with mock.patch.dict(os.environ, {"MAILATLAS_HOME": env_root.as_posix()}, clear=False):
+                    resolved = mailatlas_cli._resolve_root(None)
+            finally:
+                os.chdir(current_dir)
+
+            self.assertEqual(resolved, env_root.resolve())
 
     def test_export_json_is_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -749,23 +816,258 @@ class MailAtlasTests(unittest.TestCase):
             self.assertNotIn("Keep reading", parsed.body_text)
             self.assertNotIn("Unsubscribe", parsed.body_text)
 
-    def test_generate_brief_without_aws(self) -> None:
+    def test_parser_config_can_disable_documented_cleaning_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            eml_path = root / "plain.eml"
-            _write_message(eml_path, _plain_message())
-            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
-            refs = atlas.ingest_eml([eml_path])
+            eml_path = root / "cleaning.eml"
+            message = EmailMessage()
+            message["Subject"] = "Cleaning controls"
+            message["From"] = "Cleaner Example <cleaner@example.com>"
+            message["To"] = "team@example.com"
+            message["Date"] = "Tue, 05 Mar 2024 11:00:00 +0000"
+            message["Message-ID"] = "<cleaning-1@example.com>"
+            message.set_content(
+                "Lead\u200b   line\n\n\n"
+                "<https://example.com/only-link>\n"
+                "Body before footer\n"
+                "Unsubscribe\n"
+                "Footer remains."
+            )
+            _write_message(eml_path, message)
 
-            output_path = generate_brief(
-                document_ids=[refs[0].id],
-                db_path=atlas.db_path,
-                workspace_path=atlas.workspace_path,
-                model_config={"provider": "fallback"},
+            default = parse_eml(eml_path)
+            uncleaned = parse_eml(
+                eml_path,
+                parser_config=ParserConfig(
+                    strip_forwarded_headers=False,
+                    strip_boilerplate=False,
+                    strip_link_only_lines=False,
+                    stop_at_footer=False,
+                    strip_invisible_chars=False,
+                    normalize_whitespace=False,
+                ),
             )
 
-            self.assertTrue(Path(output_path).exists())
-            self.assertIn("Generated Brief", Path(output_path).read_text(encoding="utf-8"))
+            self.assertIn("Lead line", default.body_text)
+            self.assertNotIn("\u200b", default.body_text)
+            self.assertNotIn("<https://example.com/only-link>", default.body_text)
+            self.assertNotIn("Unsubscribe", default.body_text)
+            self.assertNotIn("Footer remains.", default.body_text)
+            self.assertNotIn("\n\n\n", default.body_text)
+
+            self.assertIn("Lead\u200b   line", uncleaned.body_text)
+            self.assertIn("<https://example.com/only-link>", uncleaned.body_text)
+            self.assertIn("Unsubscribe", uncleaned.body_text)
+            self.assertIn("Footer remains.", uncleaned.body_text)
+            self.assertIn("\n\n\n", uncleaned.body_text)
+
+    def test_export_markdown_includes_document_text_and_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "inline.eml"
+            _write_message(eml_path, _html_inline_message())
+
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            refs = atlas.ingest_eml([eml_path])
+            markdown = atlas.export_document(refs[0].id, format="markdown")
+
+            self.assertIn("# Inline HTML", markdown)
+            self.assertIn("Fallback body", markdown)
+            self.assertIn("## Assets", markdown)
+            self.assertIn("assets/", markdown)
+
+    def test_resolve_root_reads_dot_mailatlas_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            (project_root / ".mailatlas.toml").write_text('root = "configured-root"\n', encoding="utf-8")
+            current_dir = Path.cwd()
+            try:
+                os.chdir(project_root)
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    resolved = mailatlas_cli._resolve_root(None)
+            finally:
+                os.chdir(current_dir)
+
+            self.assertEqual(resolved, (project_root / "configured-root").resolve())
+
+    def test_cli_get_pdf_without_out_writes_default_export_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "inline.eml"
+            browser_path = root / "fake-browser.sh"
+            storage_root = root / "mailatlas-root"
+            _write_message(eml_path, _html_inline_message())
+            _write_fake_pdf_browser(browser_path)
+
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            refs = atlas.ingest_eml([eml_path])
+
+            with mock.patch.dict(os.environ, {"MAILATLAS_PDF_BROWSER": browser_path.as_posix()}, clear=False):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(["get", "--root", storage_root.as_posix(), refs[0].id, "--format", "pdf"])
+
+            rendered_path = Path(stdout.getvalue().strip())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(rendered_path, (storage_root / "exports" / f"{refs[0].id}.pdf").resolve())
+            self.assertTrue(rendered_path.exists())
+            self.assertTrue(rendered_path.read_bytes().startswith(b"%PDF-1.4"))
+
+    def test_documented_cli_quickstart_flow_works_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            storage_root = project_root / ".mailatlas"
+            browser_path = project_root / "fake-browser.sh"
+            fixtures = Path(__file__).resolve().parents[1] / "data" / "fixtures"
+            _write_fake_pdf_browser(browser_path)
+
+            fixture_paths = [
+                fixtures / "atlas-market-map.eml",
+                fixtures / "atlas-founder-forward.eml",
+                fixtures / "atlas-inline-chart.eml",
+            ]
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "MAILATLAS_HOME": storage_root.as_posix(),
+                    "MAILATLAS_PDF_BROWSER": browser_path.as_posix(),
+                },
+                clear=False,
+            ):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    ingest_code = mailatlas_cli.main(["ingest", *(path.as_posix() for path in fixture_paths)])
+                ingest_payload = json.loads(stdout.getvalue())
+
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    list_code = mailatlas_cli.main(["list"])
+                listed_refs = json.loads(stdout.getvalue())
+
+                inline_ref = next(ref for ref in ingest_payload["document_refs"] if ref["subject"] == "Port dwell times normalize after weather disruptions")
+
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    get_code = mailatlas_cli.main(["get", inline_ref["id"]])
+                stored_document = json.loads(stdout.getvalue())
+
+                json_export_path = project_root / "port-dwell.json"
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    json_code = mailatlas_cli.main(["get", inline_ref["id"], "--format", "json", "--out", json_export_path.as_posix()])
+                written_json_path = Path(stdout.getvalue().strip())
+
+                pdf_export_path = project_root / "port-dwell.pdf"
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    pdf_code = mailatlas_cli.main(["get", inline_ref["id"], "--format", "pdf", "--out", pdf_export_path.as_posix()])
+                written_pdf_path = Path(stdout.getvalue().strip())
+
+            self.assertEqual(ingest_code, 0)
+            self.assertEqual(ingest_payload["status"], "ok")
+            self.assertEqual(ingest_payload["ingested_count"], 3)
+            self.assertEqual(ingest_payload["duplicate_count"], 0)
+            self.assertEqual(len(listed_refs), 3)
+            self.assertEqual(list_code, 0)
+            self.assertEqual(get_code, 0)
+            self.assertEqual(stored_document["id"], inline_ref["id"])
+            self.assertEqual(stored_document["body_html_path"].split("/", 1)[0], "html")
+            self.assertEqual(stored_document["raw_path"].split("/", 1)[0], "raw")
+            self.assertEqual(stored_document["assets"][0]["kind"], "inline")
+            self.assertEqual(stored_document["assets"][0]["file_path"].split("/", 1)[0], "assets")
+            self.assertEqual(json_code, 0)
+            self.assertEqual(written_json_path, json_export_path.resolve())
+            self.assertEqual(json.loads(json_export_path.read_text(encoding="utf-8"))["id"], inline_ref["id"])
+            self.assertEqual(pdf_code, 0)
+            self.assertEqual(written_pdf_path, pdf_export_path.resolve())
+            self.assertTrue(pdf_export_path.read_bytes().startswith(b"%PDF-1.4"))
+
+            self.assertTrue((storage_root / "store.db").exists())
+            self.assertTrue((storage_root / "raw").exists())
+            self.assertTrue((storage_root / "html").exists())
+            self.assertTrue((storage_root / "assets").exists())
+            self.assertTrue((storage_root / "exports").exists())
+
+    def test_cli_sync_with_access_token_does_not_persist_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 777,
+                        "messages": {
+                            4: _imap_message_bytes("Token Auth", "<imap-token@example.com>"),
+                        },
+                    }
+                }
+            )
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "MAILATLAS_IMAP_HOST": "imap.example.com",
+                        "MAILATLAS_IMAP_USERNAME": "oauth-user@example.com",
+                        "MAILATLAS_IMAP_ACCESS_TOKEN": "access-token",
+                    },
+                    clear=False,
+                ):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        exit_code = mailatlas_cli.main(["sync", "--root", root.as_posix()])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["auth"], "xoauth2")
+            self.assertEqual(connection.login_calls, [])
+            self.assertEqual(connection.authenticate_calls[0][0], "XOAUTH2")
+
+            with sqlite3.connect(root / "store.db") as connection_db:
+                schema_columns = {
+                    row[1]
+                    for row in connection_db.execute("PRAGMA table_info(imap_sync_state)").fetchall()
+                }
+                state_row = connection_db.execute(
+                    "SELECT host, port, username, folder, uidvalidity, last_uid, status, error FROM imap_sync_state"
+                ).fetchone()
+
+            self.assertNotIn("password", schema_columns)
+            self.assertNotIn("access_token", schema_columns)
+            self.assertEqual(state_row, ("imap.example.com", 993, "oauth-user@example.com", "INBOX", "777", 4, "ok", None))
+
+    def test_cli_sync_rejects_missing_or_conflicting_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                missing_code = mailatlas_cli.main(
+                    [
+                        "sync",
+                        "--root",
+                        root.as_posix(),
+                        "--host",
+                        "imap.example.com",
+                        "--username",
+                        "user@example.com",
+                    ]
+                )
+            self.assertEqual(missing_code, 1)
+            self.assertIn("Provide either an IMAP password or an IMAP access token.", stderr.getvalue())
+
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                conflicting_code = mailatlas_cli.main(
+                    [
+                        "sync",
+                        "--root",
+                        root.as_posix(),
+                        "--host",
+                        "imap.example.com",
+                        "--username",
+                        "user@example.com",
+                        "--password",
+                        "secret",
+                        "--access-token",
+                        "token",
+                    ]
+                )
+            self.assertEqual(conflicting_code, 1)
+            self.assertIn("Choose either password auth or access-token auth, not both.", stderr.getvalue())
 
     def test_public_synthetic_fixtures_support_launch_examples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

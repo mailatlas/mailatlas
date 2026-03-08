@@ -29,14 +29,13 @@ fi
 rm -rf "$demo_root"
 mkdir -p "$demo_root/output"
 
-db_path="$demo_root/store.db"
-workspace_path="$demo_root/workspace"
+root_path="$demo_root/.mailatlas"
 
-ingest_json="$("$cli_bin" ingest eml "$fixture" --db "$db_path" --workspace "$workspace_path")"
-doc_id="$(printf '%s' "$ingest_json" | "$python_bin" -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')"
-list_json="$("$cli_bin" list --db "$db_path" --workspace "$workspace_path")"
-json_path="$("$cli_bin" export "$doc_id" --format json --out "$demo_root/output/document.json" --db "$db_path" --workspace "$workspace_path")"
-html_path="$("$cli_bin" export "$doc_id" --format html --out "$demo_root/output/document.html" --db "$db_path" --workspace "$workspace_path")"
+ingest_json="$("$cli_bin" ingest --root "$root_path" "$fixture")"
+doc_id="$(printf '%s' "$ingest_json" | "$python_bin" -c 'import json, sys; print(json.load(sys.stdin)["document_refs"][0]["id"])')"
+list_json="$("$cli_bin" list --root "$root_path")"
+json_path="$("$cli_bin" get "$doc_id" --format json --out "$demo_root/output/document.json" --root "$root_path")"
+html_path="$("$cli_bin" get "$doc_id" --format html --out "$demo_root/output/document.html" --root "$root_path")"
 
 echo "Ingest:"
 echo "$ingest_json"
@@ -53,6 +52,6 @@ if [[ "${MAILATLAS_SKIP_PDF:-0}" == "1" ]]; then
   exit 0
 fi
 
-pdf_path="$("$cli_bin" export "$doc_id" --format pdf --out "$demo_root/output/document.pdf" --db "$db_path" --workspace "$workspace_path")"
+pdf_path="$("$cli_bin" get "$doc_id" --format pdf --out "$demo_root/output/document.pdf" --root "$root_path")"
 echo "PDF:"
 echo "$pdf_path"

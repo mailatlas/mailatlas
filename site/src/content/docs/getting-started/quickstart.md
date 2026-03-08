@@ -10,7 +10,7 @@ keeping raw email, HTML, and extracted attachments or inline assets linked toget
 optional.
 
 This page uses `.eml` files already on disk. If you want MailAtlas to connect to a live mailbox,
-use `mailatlas sync imap` instead.
+use `mailatlas sync` instead.
 
 ## Before you start
 
@@ -19,58 +19,54 @@ use `mailatlas sync imap` instead.
 - You only need Chrome or Chromium if you plan to export PDF.
 - By the end, you will ingest sample messages, inspect one stored document, and export JSON.
 
-## 1. Ingest the sample `.eml` files
+## 1. Choose the local root
+
+MailAtlas defaults to `.mailatlas` in the current directory. You can make that explicit once for
+the rest of the session:
 
 ```bash
-mailatlas ingest eml \
+export MAILATLAS_HOME="$PWD/.mailatlas"
+```
+
+## 2. Ingest the sample `.eml` files
+
+```bash
+mailatlas ingest \
   data/fixtures/atlas-market-map.eml \
   data/fixtures/atlas-founder-forward.eml \
-  data/fixtures/atlas-inline-chart.eml \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  data/fixtures/atlas-inline-chart.eml
 ```
 
-MailAtlas prints a JSON array of created document references:
+MailAtlas prints a JSON summary:
 
 ```json
-[
-  {
-    "id": "<document-id>",
-    "subject": "Regional freight signals tighten in the Midwest",
-    "source_kind": "eml",
-    "created_at": "<timestamp>"
-  },
-  {
-    "id": "<document-id>",
-    "subject": "Municipal grid storage tender opens sooner than expected",
-    "source_kind": "eml",
-    "created_at": "<timestamp>"
-  },
-  {
-    "id": "<document-id>",
-    "subject": "Port dwell times normalize after weather disruptions",
-    "source_kind": "eml",
-    "created_at": "<timestamp>"
-  }
-]
+{
+  "status": "ok",
+  "ingested_count": 3,
+  "duplicate_count": 0,
+  "document_refs": [
+    {
+      "id": "<document-id>",
+      "subject": "Regional freight signals tighten in the Midwest",
+      "source_kind": "eml",
+      "created_at": "<timestamp>"
+    }
+  ]
+}
 ```
 
-## 2. List the stored documents
+## 3. List the stored documents
 
 ```bash
-mailatlas list \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas list
 ```
 
 Use any returned `id` as `<document-id>` in the next steps.
 
-## 3. Inspect one stored document
+## 4. Inspect one stored document
 
 ```bash
-mailatlas show <document-id> \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas get <document-id>
 ```
 
 A stored document includes links back to the original email, any normalized HTML, and extracted
@@ -101,14 +97,12 @@ assets such as inline images or email attachments:
 When MailAtlas extracts a regular file attachment, that same `assets` array uses
 `"kind": "attachment"` and stores the file under `assets/<document-id>/...`.
 
-## 4. Export a document as JSON
+## 5. Export a document as JSON
 
 ```bash
-mailatlas export <document-id> \
+mailatlas get <document-id> \
   --format json \
-  --out ./port-dwell.json \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --out ./port-dwell.json
 ```
 
 The command prints the output path you wrote, for example:
@@ -117,20 +111,18 @@ The command prints the output path you wrote, for example:
 /private/tmp/port-dwell.json
 ```
 
-## 5. Optionally export the same document as PDF
+## 6. Optionally export the same document as PDF
 
 ```bash
-mailatlas export <document-id> \
+mailatlas get <document-id> \
   --format pdf \
-  --out ./port-dwell.pdf \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --out ./port-dwell.pdf
 ```
 
 PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if the browser executable is not
 on the default path.
 
-## 6. Review the stored outputs
+## 7. Review the stored outputs
 
 During ingest, MailAtlas writes:
 
@@ -140,7 +132,7 @@ During ingest, MailAtlas writes:
 - metadata to `store.db`
 
 Exports go where you tell MailAtlas to write them with `--out`. If you omit `--out` for a PDF
-export, MailAtlas writes the PDF to `workspace/exports/<document-id>.pdf`.
+export, MailAtlas writes the PDF to `.mailatlas/exports/<document-id>.pdf`.
 
 ## Next step
 

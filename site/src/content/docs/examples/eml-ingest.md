@@ -5,11 +5,9 @@ slug: docs/examples/eml-ingest
 ---
 
 ```bash
-mailatlas ingest eml \
+mailatlas ingest \
   data/fixtures/atlas-market-map.eml \
-  data/fixtures/atlas-founder-forward.eml \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  data/fixtures/atlas-founder-forward.eml
 ```
 
 This example is useful for:

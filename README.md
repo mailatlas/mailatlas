@@ -4,8 +4,8 @@
 
 MailAtlas has two input paths:
 
-- ingest email files already on disk with `ingest eml` and `ingest mbox`
-- connect to a live mailbox with `sync imap` and fetch selected folders manually
+- ingest email files already on disk with `ingest`
+- connect to a live mailbox with `sync` and fetch selected folders manually
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
 
@@ -27,7 +27,7 @@ systems, analytics pipelines, and archival systems.
 - Preserve provenance, forwarded chains, inline images, and regular attachments.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
-- Manually sync selected IMAP folders without storing mailbox credentials in the workspace.
+- Manually sync selected IMAP folders without storing mailbox credentials in the local store.
 - Start with the built-in filesystem and SQLite store, then copy the resulting files and metadata into your own storage stack if needed.
 
 ## Project Status
@@ -48,11 +48,10 @@ python -m pip install mailatlas
 
 After that, use the `mailatlas` command directly.
 
-If you want the optional AI or API extras from PyPI:
+If you want the optional API extra from PyPI:
 
 ```bash
 python -m pip install "mailatlas[api]"
-python -m pip install "mailatlas[ai]"
 ```
 
 ### `uv`
@@ -77,7 +76,7 @@ brew install mailatlas/mailatlas/mailatlas
 
 ### From source
 
-Use a source checkout when you want to run the shipped fixtures, the example API, or contribute to
+Use a source checkout when you want to run the shipped fixtures, the demo API, or contribute to
 the project:
 
 ```bash
@@ -86,45 +85,63 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-## 60-Second Quickstart
+## Local Store
 
-Ingest the synthetic `.eml` fixtures shipped with the repo:
+By default, MailAtlas writes to `.mailatlas` in the current directory:
+
+- `store.db`
+- `raw/`
+- `html/`
+- `assets/`
+- `exports/`
+
+Set `MAILATLAS_HOME` once if you want MailAtlas to reuse a different root automatically:
 
 ```bash
-mailatlas ingest eml \
+export MAILATLAS_HOME="$PWD/.mailatlas"
+```
+
+You can also override the root per command with `--root`.
+
+## 60-Second Quickstart
+
+Ingest the synthetic fixtures shipped with the repo:
+
+```bash
+export MAILATLAS_HOME="$PWD/.mailatlas"
+
+mailatlas ingest \
   data/fixtures/atlas-market-map.eml \
   data/fixtures/atlas-founder-forward.eml \
-  data/fixtures/atlas-inline-chart.eml \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  data/fixtures/atlas-inline-chart.eml
 ```
 
 List the stored documents:
 
 ```bash
-mailatlas list \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas list
 ```
 
-Export one document as JSON:
+Read one document as JSON:
 
 ```bash
-mailatlas export <document-id> \
+mailatlas get <document-id>
+```
+
+Write the same document to a JSON file:
+
+```bash
+mailatlas get <document-id> \
   --format json \
-  --out ./document.json \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --out ./document.json
 ```
 
 Export the same document as a PDF artifact:
 
 ```bash
-mailatlas export <document-id> \
+mailatlas get <document-id> \
   --format pdf \
-  --out ./document.pdf \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --out ./document.pdf
 ```
 
 PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if the executable is not on the default path.
@@ -145,12 +162,12 @@ The demo API is intended for a source checkout and requires the `.[api]` extra.
 - Normalize inbound email for analytics, retention, or archival processing.
 - Inspect and test parser behavior against known synthetic fixtures.
 
-## CLI Example
+## CLI Examples
+
+Auto-detect and ingest an `mbox` archive:
 
 ```bash
-mailatlas ingest mbox data/fixtures/atlas-demo.mbox \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+mailatlas ingest data/fixtures/atlas-demo.mbox
 ```
 
 Manual IMAP sync is incremental by folder and stores only non-secret cursor state:
@@ -160,12 +177,9 @@ export MAILATLAS_IMAP_HOST=imap.example.com
 export MAILATLAS_IMAP_USERNAME=user@example.com
 export MAILATLAS_IMAP_ACCESS_TOKEN=oauth-access-token
 
-mailatlas sync imap \
-  --auth xoauth2 \
+mailatlas sync \
   --folder INBOX \
-  --folder Newsletters \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --folder Newsletters
 ```
 
 MailAtlas consumes the access token you already have. It does not run a browser login flow or act
@@ -174,11 +188,9 @@ as your OAuth client.
 Parser cleanup is configurable:
 
 ```bash
-mailatlas ingest eml data/fixtures/atlas-founder-forward.eml \
+mailatlas ingest data/fixtures/atlas-founder-forward.eml \
   --no-strip-forwarded-headers \
-  --no-strip-boilerplate \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+  --no-strip-boilerplate
 ```
 
 ## Python API Example
@@ -188,7 +200,7 @@ from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
-    workspace_path=".mailatlas/workspace",
+    workspace_path=".mailatlas",
     parser_config=ParserConfig(strip_boilerplate=True, stop_at_footer=True),
 )
 

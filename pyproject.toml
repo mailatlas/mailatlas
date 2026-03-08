@@ -40,13 +40,6 @@ api = [
   "uvicorn",
   "python-dotenv>=1.0.1",
 ]
-ai = [
-  "langchain>=0.2.6",
-  "langchain-openai>=0.1.14",
-  "langchain-google-genai>=1.0.7",
-  "langchain-anthropic>=0.1.19",
-  "python-dotenv>=1.0.1",
-]
 
 [project.scripts]
 mailatlas = "mailatlas.cli:main"

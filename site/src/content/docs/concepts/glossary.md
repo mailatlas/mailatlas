@@ -6,26 +6,25 @@ slug: docs/concepts/glossary
 
 ## `.eml`
 
-A single email message file on disk. Use `ingest eml` when you already have one or more of these
-files locally.
+A single email message file on disk. Use `ingest` when you already have one or more of these files locally.
 
 ## `mbox`
 
-A mailbox file on disk that can contain many messages. Use `ingest mbox` when you already have an
+A mailbox file on disk that can contain many messages. Use `ingest` when you already have an
 `mbox` file locally. This is not the same thing as IMAP sync.
 
-## `sync imap`
+## `sync`
 
 The MailAtlas command for connecting to a live mailbox over IMAP and fetching selected folders into
-the local workspace. This is the live-mailbox path.
+the local store. This is the live-mailbox path.
 
-## workspace
+## root
 
-The directory that holds raw email, normalized HTML, extracted assets, and optional exports.
+The directory that holds raw email, normalized HTML, extracted assets, exports, and `store.db`.
 
 ## document
 
-The normalized MailAtlas record stored in SQLite and linked to files in the workspace.
+The normalized MailAtlas record stored in SQLite and linked to files in the local root.
 
 ## asset
 

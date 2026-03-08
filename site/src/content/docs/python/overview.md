@@ -37,7 +37,7 @@ from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
-    workspace_path=".mailatlas/workspace",
+    workspace_path=".mailatlas",
     parser_config=ParserConfig(strip_boilerplate=True, stop_at_footer=True),
 )
 

@@ -28,7 +28,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           <h1>MailAtlas: email ingestion for AI agents and data apps.</h1>
           <p class="lede">
             Read <code>.eml</code> files, import <code>mbox</code> mailbox files, or sync selected
-            IMAP folders into one local workspace. MailAtlas keeps raw messages, cleaned text, HTML,
+            IMAP folders into one local store. MailAtlas keeps raw messages, cleaned text, HTML,
             inline images, file attachments, and metadata together so the same email can power AI,
             search, audits, and analytics.
           </p>
@@ -37,7 +37,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
             <a class="button button-secondary" href="/docs/getting-started/manual-imap-sync/">See IMAP sync</a>
           </div>
           <p class="hero-note">
-            Start with files when your email is already on disk. Use <code>sync imap</code> when you
+            Start with files when your email is already on disk. Use <code>sync</code> when you
             need MailAtlas to connect to a live mailbox and fetch folders incrementally.
           </p>
           <div class="hero-meta" aria-label="Core capabilities">
@@ -54,21 +54,16 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           <div class="mode-stack">
             <article class="mode-card">
               <span class="mode-card-accent">From files</span>
-              <strong><code>ingest eml</code></strong>
-              <p>Read one or more <code>.eml</code> message files already on disk.</p>
-            </article>
-            <article class="mode-card">
-              <span class="mode-card-accent">From files</span>
-              <strong><code>ingest mbox</code></strong>
-              <p>Read an <code>mbox</code> mailbox file already on disk.</p>
+              <strong><code>ingest</code></strong>
+              <p>Read <code>.eml</code> files or an <code>mbox</code> mailbox archive already on disk.</p>
             </article>
             <article class="mode-card">
               <span class="mode-card-accent">From live mailbox</span>
-              <strong><code>sync imap</code></strong>
-              <p>Fetch selected folders over IMAP into the same workspace.</p>
+              <strong><code>sync</code></strong>
+              <p>Fetch selected folders over IMAP into the same local store.</p>
             </article>
           </div>
-          <div class="flow-caption">All three paths create the same stored document schema.</div>
+          <div class="flow-caption">All ingest paths create the same stored document schema.</div>
           <div class="record-card hero-record">
             <div class="code-header">stored document</div>
             <dl class="record-list">
@@ -110,7 +105,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         <p>Use this when another system exported a mailbox file and you want to normalize every message inside it.</p>
       </article>
       <article class="proof-card">
-        <span class="proof-label"><code>sync imap</code></span>
+        <span class="proof-label"><code>sync</code></span>
         <strong>Selected folders from a live mailbox</strong>
         <p>Use this when the messages still live in an inbox and you want MailAtlas to fetch them incrementally.</p>
       </article>
@@ -149,26 +144,24 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           pointing MailAtlas at your own email. This is the fastest way to verify the stored schema and
           export flow end to end.
         </p>
-        <div class="code-block code-block-large">
-          <div class="code-header">recommended path</div>
+          <div class="code-block code-block-large">
+            <div class="code-header">recommended path</div>
           <pre>python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install mailatlas
 
-mailatlas ingest eml \
-  path/to/message.eml \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace
+export MAILATLAS_HOME="$PWD/.mailatlas"
 
-mailatlas list \
-  --db .mailatlas/store.db \
-  --workspace .mailatlas/workspace</pre>
+mailatlas ingest \
+  path/to/message.eml
+
+mailatlas list</pre>
         </div>
         <ul class="detail-list detail-list-tight">
           <li>Use <code>python -m pip install "mailatlas[api]"</code> only if you want the published API extra.</li>
           <li>Use <code>uv tool install mailatlas</code> or Homebrew if you prefer a tool-style install.</li>
-          <li>Clone the repo if you want the shipped fixtures or the example API app.</li>
-          <li>Use <code>sync imap</code> instead when the messages are still in a live mailbox.</li>
+          <li>Clone the repo if you want the shipped fixtures or the demo API app.</li>
+          <li>Use <code>sync</code> instead when the messages are still in a live mailbox.</li>
           <li>Export JSON, HTML, or Markdown anywhere with <code>--out</code>; PDF export is optional.</li>
         </ul>
       </article>
@@ -177,20 +170,19 @@ mailatlas list \
         <div class="eyebrow">What MailAtlas stores per message</div>
         <h2>One document, plus links back to raw email, attachments, and derived artifacts.</h2>
         <p>
-          The default workspace is the built-in local storage layout. It keeps raw bytes, normalized HTML,
+          The default root is the built-in local storage layout. It keeps raw bytes, normalized HTML,
           extracted inline images and attachments, and SQLite metadata together so you can inspect
           them locally or move the data into your own services later.
         </p>
         <div class="workspace-grid">
           <div class="code-block code-block-large">
-            <div class="code-header">reference workspace</div>
+            <div class="code-header">reference root</div>
             <pre>.mailatlas/
   store.db
-  workspace/
-    raw/
-    html/
-    assets/
-    exports/</pre>
+  raw/
+  html/
+  assets/
+  exports/</pre>
           </div>
           <div class="record-card code-block-large">
             <div class="code-header">stored document</div>
@@ -217,7 +209,7 @@ mailatlas list \
               </div>
               <div class="record-row">
                 <dt>exports</dt>
-                <dd><code>--out ./document.json</code> or <code>workspace/exports/&lt;document-id&gt;.pdf</code></dd>
+                <dd><code>--out ./document.json</code> or <code>exports/&lt;document-id&gt;.pdf</code></dd>
               </div>
             </dl>
           </div>

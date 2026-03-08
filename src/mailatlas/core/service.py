@@ -9,7 +9,7 @@ from mailatlas.adapters.imap import open_imap_session
 from .exports import export_document as export_document_content
 from .models import DocumentRef, ImapFolderSyncResult, ImapSyncConfig, ImapSyncResult, NormalizedDocument, ParserConfig
 from .parsing import parse_email_bytes, parse_eml as parse_eml_file
-from .storage import WorkspaceStore
+from .storage import DocumentSaveResult, WorkspaceStore
 
 
 def _imap_source_path(host: str, port: int, folder: str, uid: int) -> str:
@@ -21,7 +21,7 @@ class MailAtlas:
     def __init__(
         self,
         db_path: str | Path = ".mailatlas/store.db",
-        workspace_path: str | Path = ".mailatlas/workspace",
+        workspace_path: str | Path = ".mailatlas",
         parser_config: ParserConfig | None = None,
     ):
         self.db_path = Path(db_path).expanduser().resolve()
@@ -36,18 +36,44 @@ class MailAtlas:
     ) -> NormalizedDocument:
         return parse_eml_file(path, parser_config=parser_config or self.parser_config)
 
+    def ingest_eml_results(
+        self,
+        paths: list[str | Path],
+        parser_config: ParserConfig | None = None,
+    ) -> list[DocumentSaveResult]:
+        effective_parser_config = parser_config or self.parser_config
+        results: list[DocumentSaveResult] = []
+
+        for path in paths:
+            resolved = Path(path).expanduser().resolve()
+            parsed = parse_eml_file(resolved, parser_config=effective_parser_config)
+            results.append(self.store.save_document_result(parsed, resolved.as_posix()))
+
+        return results
+
     def ingest_eml(
         self,
         paths: list[str | Path],
         parser_config: ParserConfig | None = None,
     ) -> list[DocumentRef]:
-        effective_parser_config = parser_config or self.parser_config
-        results: list[DocumentRef] = []
+        return [result.ref for result in self.ingest_eml_results(paths, parser_config=parser_config)]
 
-        for path in paths:
-            resolved = Path(path).expanduser().resolve()
-            parsed = parse_eml_file(resolved, parser_config=effective_parser_config)
-            results.append(self.store.save_document(parsed, resolved.as_posix()))
+    def ingest_mbox_results(
+        self,
+        path: str | Path,
+        parser_config: ParserConfig | None = None,
+    ) -> list[DocumentSaveResult]:
+        effective_parser_config = parser_config or self.parser_config
+        resolved = Path(path).expanduser().resolve()
+        results: list[DocumentSaveResult] = []
+        archive = mailbox.mbox(resolved)
+        try:
+            for index, message in enumerate(archive):
+                raw_bytes = message.as_bytes()
+                parsed = parse_email_bytes(raw_bytes, source_kind="mbox", parser_config=effective_parser_config)
+                results.append(self.store.save_document_result(parsed, f"{resolved.as_posix()}#{index}"))
+        finally:
+            archive.close()
 
         return results
 
@@ -56,19 +82,7 @@ class MailAtlas:
         path: str | Path,
         parser_config: ParserConfig | None = None,
     ) -> list[DocumentRef]:
-        effective_parser_config = parser_config or self.parser_config
-        resolved = Path(path).expanduser().resolve()
-        results: list[DocumentRef] = []
-        archive = mailbox.mbox(resolved)
-        try:
-            for index, message in enumerate(archive):
-                raw_bytes = message.as_bytes()
-                parsed = parse_email_bytes(raw_bytes, source_kind="mbox", parser_config=effective_parser_config)
-                results.append(self.store.save_document(parsed, f"{resolved.as_posix()}#{index}"))
-        finally:
-            archive.close()
-
-        return results
+        return [result.ref for result in self.ingest_mbox_results(path, parser_config=parser_config)]
 
     def sync_imap(self, config: ImapSyncConfig) -> ImapSyncResult:
         results: list[ImapFolderSyncResult] = []

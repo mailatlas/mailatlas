@@ -107,7 +107,7 @@ def export_document(
     out_path: str | Path | None = None,
 ) -> str:
     db = db_path or ".mailatlas/store.db"
-    workspace = workspace_path or ".mailatlas/workspace"
+    workspace = workspace_path or ".mailatlas"
     store = WorkspaceStore(db, workspace)
 
     if format == "json":

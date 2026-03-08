@@ -55,14 +55,12 @@ class WorkspaceStore:
         self.html_dir = self.workspace_path / "html"
         self.assets_dir = self.workspace_path / "assets"
         self.exports_dir = self.workspace_path / "exports"
-        self.briefs_dir = self.workspace_path / "briefs"
 
         self.workspace_path.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.exports_dir.mkdir(parents=True, exist_ok=True)
-        self.briefs_dir.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -116,19 +114,6 @@ class WorkspaceStore:
                     imported_at TEXT NOT NULL,
                     status TEXT NOT NULL,
                     error TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS brief_runs (
-                    id TEXT PRIMARY KEY,
-                    output_path TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    model_config_json TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS brief_run_documents (
-                    brief_run_id TEXT NOT NULL REFERENCES brief_runs(id) ON DELETE CASCADE,
-                    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-                    PRIMARY KEY (brief_run_id, document_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS imap_sync_state (
@@ -359,25 +344,6 @@ class WorkspaceStore:
         target = self.exports_dir / f"{document_id}.{format_name}"
         target.write_text(content, encoding="utf-8")
         return target
-
-    def save_brief_run(self, output_path: str, document_ids: list[str], model_config: dict[str, str]) -> str:
-        brief_run_id = str(uuid.uuid4())
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO brief_runs (id, output_path, created_at, model_config_json)
-                VALUES (?, ?, ?, ?)
-                """,
-                (brief_run_id, output_path, _utc_now(), json.dumps(model_config)),
-            )
-            connection.executemany(
-                """
-                INSERT INTO brief_run_documents (brief_run_id, document_id)
-                VALUES (?, ?)
-                """,
-                [(brief_run_id, document_id) for document_id in document_ids],
-            )
-        return brief_run_id
 
     def get_imap_sync_state(self, host: str, port: int, username: str, folder: str) -> ImapSyncState | None:
         with self._connect() as connection:

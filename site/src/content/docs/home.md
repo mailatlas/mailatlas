@@ -11,7 +11,7 @@ applications. Pick the path based on where the email lives and what you need to 
   <a class="docs-task-card" href="/docs/getting-started/quickstart/">
     <span class="docs-task-eyebrow">Start with files</span>
     <strong>Quickstart from <code>.eml</code> files</strong>
-    <p>Run the shipped fixtures, inspect one stored document, and export JSON from a local workspace.</p>
+    <p>Run the shipped fixtures, inspect one stored document, and export JSON from a local store.</p>
   </a>
   <a class="docs-task-card" href="/docs/getting-started/manual-imap-sync/">
     <span class="docs-task-eyebrow">Live mailbox</span>
@@ -42,12 +42,11 @@ applications. Pick the path based on where the email lives and what you need to 
 
 ## Choose an ingestion method
 
-- `ingest eml`: use when you already have one or more `.eml` message files on disk.
-- `ingest mbox`: use when you have one `mbox` mailbox file on disk.
-- `sync imap`: use when MailAtlas should connect to a live mailbox and fetch selected folders incrementally.
+- `ingest`: use when you already have `.eml` files or an `mbox` mailbox file on disk.
+- `sync`: use when MailAtlas should connect to a live mailbox and fetch selected folders incrementally.
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync. If the messages
-are still in a live inbox and you want MailAtlas to read them directly, use `sync imap`.
+are still in a live inbox and you want MailAtlas to read them directly, use `sync`.
 
 ## Know the terms
 
@@ -61,12 +60,12 @@ are still in a live inbox and you want MailAtlas to read them directly, use `syn
     <p>A mailbox file on disk that can contain many messages.</p>
   </div>
   <div class="docs-term-card">
-    <strong><code>sync imap</code></strong>
+    <strong><code>sync</code></strong>
     <p>The live-mailbox path for fetching selected folders over IMAP.</p>
   </div>
   <div class="docs-term-card">
-    <strong>workspace</strong>
-    <p>The directory that holds raw email, HTML snapshots, inline images, attachments, and exports.</p>
+    <strong>root</strong>
+    <p>The directory that holds raw email, HTML snapshots, extracted assets, exports, and the SQLite index.</p>
   </div>
   <div class="docs-term-card">
     <strong>document</strong>

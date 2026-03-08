@@ -9,8 +9,8 @@ Chrome or Chromium is only required if you want PDF export.
 
 After installation, you have two ways to bring email in:
 
-- read files already on disk with `ingest eml` or `ingest mbox`
-- connect to a live mailbox with `sync imap` and fetch selected folders
+- read files already on disk with `ingest`
+- connect to a live mailbox with `sync` and fetch selected folders
 
 ## Recommended path: Python
 
@@ -24,7 +24,6 @@ mailatlas --help
 The core toolkit does not require any cloud services.
 
 - Install `python -m pip install "mailatlas[api]"` only if you want the published API extra.
-- Install `python -m pip install "mailatlas[ai]"` only if you want the published AI extra.
 - Install Chrome or Chromium only if you want PDF export.
 - Set `MAILATLAS_PDF_BROWSER` if the browser executable is not on the default path.
 
@@ -47,7 +46,7 @@ If Homebrew resolves a different formula named `mailatlas`, use
 
 ## From source
 
-Use a source checkout when you want the shipped fixtures, the example API, or editable development:
+Use a source checkout when you want the shipped fixtures, the demo API, or editable development:
 
 ```bash
 python3.12 -m venv .venv
@@ -63,8 +62,6 @@ From a source checkout:
 python -m pip install -e ".[api]"
 uvicorn app:api --reload --port 5001
 ```
-
-Environment variables for the example API live in the root `.env.example`.
 
 ## Next step
 
