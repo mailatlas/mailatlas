@@ -20,5 +20,5 @@ Recommended release flow:
 2. Set `HOMEBREW_TAP_REPOSITORY=mailatlas/homebrew-mailatlas` as a repository variable in the main repo.
 3. Set `HOMEBREW_TAP_TOKEN` as a repository secret in the main repo.
 4. Tag a release in the main repo.
-5. Let `.github/workflows/release.yml` build the source distribution, render the formula, and push `Formula/mailatlas.rb` into the tap repo.
+5. Let `.github/workflows/release.yml` build the source distribution, render `release-assets/mailatlas.rb`, and push `Formula/mailatlas.rb` into the tap repo.
 6. Run `brew audit --strict --formula ./Formula/mailatlas.rb` inside the tap repo.

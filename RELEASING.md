@@ -29,7 +29,7 @@ is required once Trusted Publishing is configured.
 4. In this repo, add a repository secret named `HOMEBREW_TAP_TOKEN` that can push to the tap repo.
    A fine-grained token with `Contents: Read and write` on the tap repository is sufficient.
 
-When those are present, the release workflow will render `mailatlas.rb`, copy it into
+When those are present, the release workflow will render `release-assets/mailatlas.rb`, copy it into
 `Formula/mailatlas.rb` in the tap repo, and push the update automatically.
 
 ## Per Release
@@ -40,7 +40,8 @@ When those are present, the release workflow will render `mailatlas.rb`, copy it
 4. Watch `.github/workflows/release.yml`:
    - build sdist and wheel
    - publish to PyPI
-   - publish a GitHub release with the built artifacts
+   - render the Homebrew formula outside `dist/` so PyPI only sees Python distributions
+   - publish a GitHub release with the built artifacts and formula
    - update the Homebrew tap if `HOMEBREW_TAP_REPOSITORY` and `HOMEBREW_TAP_TOKEN` are configured
 
 ## Post-Release Checks
