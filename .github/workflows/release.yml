@@ -24,6 +24,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
           python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
       - name: Render Homebrew formula
         env:
           GITHUB_OWNER: ${{ github.repository_owner }}
@@ -33,8 +35,6 @@ jobs:
             --version "${GITHUB_REF_NAME#v}" \
             --sdist dist/mailatlas-${GITHUB_REF_NAME#v}.tar.gz \
             --output dist/mailatlas.rb
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
