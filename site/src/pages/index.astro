@@ -26,8 +26,8 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           <p class="lede">
             Read <code>.eml</code> files, import <code>mbox</code> mailbox files, or sync selected
             IMAP folders into one local workspace. MailAtlas keeps raw messages, cleaned text, HTML,
-            assets, and metadata together so the same email can power AI, search, audits, and
-            analytics.
+            inline images, file attachments, and metadata together so the same email can power AI,
+            search, audits, and analytics.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="/docs/getting-started/quickstart/">Try file ingest</a>
@@ -41,6 +41,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
             <span>Open source</span>
             <span>No hosted service required</span>
             <span>Stores IMAP cursors, not mailbox credentials</span>
+            <span>Preserves inline images and attachments</span>
             <span>JSON, Markdown, HTML, PDF exports</span>
           </div>
         </div>
@@ -82,7 +83,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
               </div>
               <div class="record-row">
                 <dt>assets</dt>
-                <dd><code>assets/&lt;document-id&gt;/...</code></dd>
+                <dd><code>assets/&lt;document-id&gt;/...</code> for inline images and attachments</dd>
               </div>
               <div class="record-row">
                 <dt>exports</dt>
@@ -117,7 +118,7 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         <div class="eyebrow">Use MailAtlas if</div>
         <h2>Your goal is reusable application data, not inbox UX.</h2>
         <ul class="detail-list">
-          <li>You need cleaned text plus links back to the raw email, HTML, and extracted assets.</li>
+          <li>You need cleaned text plus links back to the raw email, HTML, inline images, and file attachments.</li>
           <li>You want one repeatable ingest layer for retrieval, analytics, audit trails, or agent workflows.</li>
           <li>You care about deterministic exports such as JSON, Markdown, HTML, and PDF.</li>
           <li>You want to start with files and add manual IMAP sync later without changing the stored shape.</li>
@@ -171,11 +172,11 @@ mailatlas list \
 
       <article class="panel">
         <div class="eyebrow">What MailAtlas stores per message</div>
-        <h2>One document, plus links back to raw email and derived artifacts.</h2>
+        <h2>One document, plus links back to raw email, attachments, and derived artifacts.</h2>
         <p>
           The default workspace is a reference implementation. It keeps raw bytes, normalized HTML,
-          extracted assets, and SQLite metadata together so you can inspect them locally or move the
-          data into your own services later.
+          extracted inline images and attachments, and SQLite metadata together so you can inspect
+          them locally or move the data into your own services later.
         </p>
         <div class="workspace-grid">
           <div class="code-block code-block-large">
@@ -209,7 +210,7 @@ mailatlas list \
               </div>
               <div class="record-row">
                 <dt>asset refs</dt>
-                <dd><code>assets/&lt;document-id&gt;/001-route-heatmap.svg</code></dd>
+                <dd><code>assets/&lt;document-id&gt;/001-route-heatmap.svg</code> and any extracted attachments</dd>
               </div>
               <div class="record-row">
                 <dt>exports</dt>

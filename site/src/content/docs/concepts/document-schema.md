@@ -34,6 +34,9 @@ Assets are stored separately with:
 - `cid`
 - `sha256`
 
+`kind` is `inline` for embedded assets such as HTML images and `attachment` for regular email
+attachments extracted from the message.
+
 ## Metadata
 
 `metadata` carries parser notes and provenance:

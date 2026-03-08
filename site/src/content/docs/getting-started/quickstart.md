@@ -1,12 +1,13 @@
 ---
 title: Quickstart
-description: Run MailAtlas end to end with synthetic fixtures and inspect the output.
+description: Run MailAtlas end to end with synthetic fixtures and inspect the output, including extracted attachments and inline assets.
 slug: docs/getting-started/quickstart
 ---
 
 MailAtlas ships with synthetic fixtures so you can verify the file-based ingest flow before
-pointing it at your own email. The core path is ingest, list, inspect, and export JSON. PDF export
-is optional.
+pointing it at your own email. The core path is ingest, list, inspect, and export JSON while
+keeping raw email, HTML, and extracted attachments or inline assets linked together. PDF export is
+optional.
 
 This page uses `.eml` files already on disk. If you want MailAtlas to connect to a live mailbox,
 use `mailatlas sync imap` instead.
@@ -73,7 +74,7 @@ mailatlas show <document-id> \
 ```
 
 A stored document includes links back to the original email, any normalized HTML, and extracted
-assets:
+assets such as inline images or email attachments:
 
 ```json
 {
@@ -96,6 +97,9 @@ assets:
   ]
 }
 ```
+
+When MailAtlas extracts a regular file attachment, that same `assets` array uses
+`"kind": "attachment"` and stores the file under `assets/<document-id>/...`.
 
 ## 4. Export a document as JSON
 
@@ -132,7 +136,7 @@ During ingest, MailAtlas writes:
 
 - raw email bytes to `raw/`
 - HTML snapshots to `html/` when the message has HTML
-- extracted assets to `assets/`
+- extracted inline images and attachments to `assets/`
 - metadata to `store.db`
 
 Exports go where you tell MailAtlas to write them with `--out`. If you omit `--out` for a PDF

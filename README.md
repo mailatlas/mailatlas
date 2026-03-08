@@ -23,8 +23,8 @@ analytics, or archival systems.
 
 ## Why MailAtlas
 
-- Turn raw email into cleaned text, HTML, assets, and metadata.
-- Preserve provenance, forwarded chains, and inline images.
+- Turn raw email into cleaned text, HTML, inline images, file attachments, and metadata.
+- Preserve provenance, forwarded chains, inline images, and regular attachments.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
 - Manually sync selected IMAP folders without storing mailbox credentials in the workspace.

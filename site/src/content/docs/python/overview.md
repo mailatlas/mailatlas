@@ -13,6 +13,9 @@ from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig, parse_eml
 Use `parse_eml(...)` when you want parser output without storage. Use `MailAtlas(...)` when you
 want one configured object for storage-backed ingest, IMAP sync, and export.
 
+Parsed and stored documents can include extracted inline images and regular email attachments in
+their `assets` collection.
+
 ## Parse without storage first
 
 ```python
@@ -62,8 +65,9 @@ pdf_path = atlas.export_document(
 )
 ```
 
-This is the right entry point when you want stored raw messages, normalized HTML, extracted assets,
-document lookup through the default workspace, and optional IMAP folder sync.
+This is the right entry point when you want stored raw messages, normalized HTML, extracted inline
+images and attachments, document lookup through the default workspace, and optional IMAP folder
+sync.
 
 ## What you get back
 

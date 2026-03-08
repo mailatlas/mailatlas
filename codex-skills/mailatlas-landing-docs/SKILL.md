@@ -45,6 +45,9 @@ Use the CLI help or existing verification venv when needed:
   own consent screens, browser login, or refresh-token storage.
 - Do not call `mbox` an archive on the landing page if that wording could be confused with live
   mailbox sync.
+- When attachment support is part of the product surface, name it explicitly. Do not hide regular
+  email attachments behind the broader word `assets` in hero copy, quickstarts, or capability
+  summaries.
 - Do not imply background sync, hosted inbox search, managed storage, or a mailbox client unless
   the code actually supports it.
 
@@ -62,9 +65,12 @@ Use the CLI help or existing verification venv when needed:
 
 ## Write With Concrete Outputs
 
-- Prefer specific outputs such as raw message, cleaned text, HTML, assets, metadata, JSON, or PDF.
+- Prefer specific outputs such as raw message, cleaned text, HTML, inline images, attachments,
+  metadata, JSON, or PDF.
 - Use short sentences and front-load the important noun or verb.
 - Support phrases like `structured data` with a concrete stored shape or export example nearby.
+- Use `assets` as storage terminology, not as the only user-facing label for attachments or inline
+  images.
 - Keep “fit” and “not fit” language crisp. MailAtlas is an ingestion layer, not inbox software.
 
 ## Validate Every Public Copy Change
@@ -83,6 +89,8 @@ python3 -m http.server 4323 --bind 127.0.0.1 -d site/dist
 ```
 
 Inspect the actual pages after rebuild, not just the Markdown or Astro source.
+If sandboxed local preview access is unreliable, inspect the generated `site/dist/*.html` output
+directly to confirm the rendered copy.
 
 ## Known Docs-Site Quirk
 

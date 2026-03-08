@@ -1,11 +1,12 @@
 ---
 title: MailAtlas Docs
-description: Choose the right path for file ingest, IMAP sync, integration, and storage details.
+description: Choose the right path for file ingest, IMAP sync, integration, attachment handling, and storage details.
 slug: docs
 ---
 
-MailAtlas turns email into reusable application data. Pick the path based on where the email lives
-and what you need to do next.
+MailAtlas turns email into reusable application data, including cleaned text, HTML, inline images,
+and regular file attachments. Pick the path based on where the email lives and what you need to do
+next.
 
 <div class="docs-task-grid">
   <a class="docs-task-card" href="/docs/getting-started/quickstart/">
@@ -31,7 +32,7 @@ and what you need to do next.
   <a class="docs-task-card" href="/docs/concepts/document-schema/">
     <span class="docs-task-eyebrow">Inspect outputs</span>
     <strong>Document schema</strong>
-    <p>Understand the normalized record shape, stored fields, and asset references.</p>
+    <p>Understand the normalized record shape, stored fields, and attachment or inline-asset references.</p>
   </a>
   <a class="docs-task-card" href="/docs/marketing/why-not-connectors/">
     <span class="docs-task-eyebrow">Decide if it fits</span>
@@ -66,7 +67,7 @@ are still in a live inbox and you want MailAtlas to read them directly, use `syn
   </div>
   <div class="docs-term-card">
     <strong>workspace</strong>
-    <p>The directory that holds raw email, HTML snapshots, assets, and exports.</p>
+    <p>The directory that holds raw email, HTML snapshots, inline images, attachments, and exports.</p>
   </div>
   <div class="docs-term-card">
     <strong>document</strong>

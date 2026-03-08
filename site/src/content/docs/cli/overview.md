@@ -8,6 +8,9 @@ The CLI follows a simple workflow: ingest documents, list or inspect them, then 
 you need. When you want MailAtlas to pull directly from a mailbox, use the manual `sync imap`
 command to ingest one or more folders into the same local workspace.
 
+Across all ingest paths, MailAtlas preserves extracted inline images and regular email attachments
+as file references on the stored document.
+
 Use [Quickstart](/docs/getting-started/quickstart/) when you want the fastest file-based walkthrough.
 Use [Manual IMAP Sync](/docs/getting-started/manual-imap-sync/) when you want a step-by-step live-mailbox flow.
 
@@ -75,7 +78,8 @@ mailatlas show <document-id> \
   --workspace .mailatlas/workspace
 ```
 
-This prints the full stored document as JSON, including metadata and extracted asset references.
+This prints the full stored document as JSON, including metadata and extracted inline-image or
+attachment references.
 
 ### Export one stored document
 
