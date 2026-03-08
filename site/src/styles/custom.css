@@ -1,0 +1,150 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --sl-font: "Manrope", system-ui, sans-serif;
+  --sl-font-system: "Manrope", system-ui, sans-serif;
+  --sl-font-mono: "IBM Plex Mono", monospace;
+  --sl-color-accent-low: #f3e7db;
+  --sl-color-accent: #b97443;
+  --sl-color-accent-high: #764521;
+  --sl-color-white: #13253a;
+  --sl-color-gray-1: #2b3d50;
+  --sl-color-gray-2: #4e5f70;
+  --sl-color-gray-3: #6a7785;
+  --sl-color-gray-4: #98a3ae;
+  --sl-color-gray-5: #cfd6dd;
+  --sl-color-gray-6: #e6e0d8;
+  --sl-color-black: #fbf7f2;
+  --sl-color-bg: #fbf7f2;
+  --sl-color-bg-nav: rgba(251, 247, 242, 0.94);
+  --sl-color-bg-sidebar: #f6f0e7;
+  --sl-color-hairline-light: rgba(19, 37, 58, 0.08);
+  --sl-color-hairline: rgba(19, 37, 58, 0.12);
+  --sl-content-width: 48rem;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #1f2f40;
+  --sl-color-accent: #d48b57;
+  --sl-color-accent-high: #f1c7a5;
+  --sl-color-white: #f6efe5;
+  --sl-color-gray-1: #dbe2ea;
+  --sl-color-gray-2: #b4c0cb;
+  --sl-color-gray-3: #8e9baa;
+  --sl-color-gray-4: #6d7c8e;
+  --sl-color-gray-5: #324458;
+  --sl-color-gray-6: #223246;
+  --sl-color-black: #0f1d2c;
+  --sl-color-bg: #0f1d2c;
+  --sl-color-bg-nav: rgba(15, 29, 44, 0.94);
+  --sl-color-bg-sidebar: #132234;
+  --sl-color-hairline-light: rgba(246, 239, 229, 0.12);
+  --sl-color-hairline: rgba(246, 239, 229, 0.14);
+}
+
+body {
+  font-family: "Manrope", system-ui, sans-serif;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0)) 0 0 / 100% 15rem no-repeat,
+    var(--sl-color-bg);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)) 0 0 / 100% 15rem no-repeat,
+    var(--sl-color-bg);
+}
+
+.hero,
+.content-panel,
+.sidebar-pane,
+.right-sidebar-panel,
+.card {
+  box-shadow: none;
+}
+
+.content-panel,
+.sidebar-pane,
+.right-sidebar-panel,
+.card {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+:root[data-theme="dark"] .content-panel,
+:root[data-theme="dark"] .sidebar-pane,
+:root[data-theme="dark"] .right-sidebar-panel,
+:root[data-theme="dark"] .card {
+  background: rgba(20, 31, 46, 0.74);
+}
+
+.site-title,
+.sidebar-content a,
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.02em;
+}
+
+.sl-markdown-content h1,
+.sl-markdown-content h2 {
+  font-weight: 800;
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+  line-height: 1.75;
+}
+
+.sl-markdown-content code,
+.expressive-code,
+.astro-code {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.expressive-code {
+  margin: 1rem 0;
+}
+
+.expressive-code .frame {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .expressive-code .frame {
+  background: rgba(20, 31, 46, 0.78);
+}
+
+.expressive-code .header {
+  display: none;
+}
+
+.expressive-code pre {
+  margin: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+}
+
+.expressive-code .copy {
+  top: 0.65rem;
+  right: 0.65rem;
+}
+
+.hero {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+:root[data-theme="dark"] .hero {
+  background: rgba(20, 31, 46, 0.8);
+}
+
+.hero .tagline {
+  max-width: 44rem;
+}

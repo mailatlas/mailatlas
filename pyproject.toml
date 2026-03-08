@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailatlas"
+version = "0.1.0"
+description = "Email ingestion for AI agents and data applications."
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+authors = [
+  {name = "Chirag Agrawal"},
+]
+keywords = [
+  "email ingestion",
+  "eml parser",
+  "mbox parser",
+  "email to json",
+  "html to pdf",
+  "rag",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Email",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Text Processing",
+]
+dependencies = []
+
+[project.optional-dependencies]
+api = [
+  "fastapi",
+  "uvicorn",
+  "python-dotenv>=1.0.1",
+]
+ai = [
+  "langchain>=0.2.6",
+  "langchain-openai>=0.1.14",
+  "langchain-google-genai>=1.0.7",
+  "langchain-anthropic>=0.1.19",
+  "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+mailatlas = "mailatlas.cli:main"
+
+[project.urls]
+Homepage = "https://mailatlas.dev"
+Documentation = "https://mailatlas.dev/docs"
+Source = "https://github.com/chiragagrawal/mailatlas"
+Issues = "https://github.com/chiragagrawal/mailatlas/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

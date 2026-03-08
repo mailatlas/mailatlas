@@ -1,0 +1,29 @@
+---
+import "../styles/landing.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "MailAtlas",
+  description = "Local-first email ingestion for AI and data workflows.",
+} = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div class="landing-shell">
+      <slot />
+    </div>
+  </body>
+</html>

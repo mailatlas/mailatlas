@@ -1,0 +1,58 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+ROOT="${0:A:h:h}"
+fixture="${1:-$ROOT/data/fixtures/atlas-inline-chart.eml}"
+demo_root="${2:-/tmp/mailatlas-clean-cli-demo}"
+cli_bin="${MAILATLAS_CLI:-$ROOT/.tmp-verify-312b/bin/mailatlas}"
+python_bin="${MAILATLAS_PYTHON:-$ROOT/.tmp-verify-312b/bin/python}"
+
+if [[ ! -x "$cli_bin" ]]; then
+  cli_bin="$(command -v mailatlas)"
+fi
+
+if [[ ! -x "$python_bin" ]]; then
+  python_bin="$(command -v python3)"
+fi
+
+if [[ ! -x "$cli_bin" ]]; then
+  echo "mailatlas CLI not found. Set MAILATLAS_CLI or install the package first." >&2
+  exit 1
+fi
+
+if [[ ! -x "$python_bin" ]]; then
+  echo "Python executable not found. Set MAILATLAS_PYTHON or install Python 3." >&2
+  exit 1
+fi
+
+rm -rf "$demo_root"
+mkdir -p "$demo_root/output"
+
+db_path="$demo_root/store.db"
+workspace_path="$demo_root/workspace"
+
+ingest_json="$("$cli_bin" ingest eml "$fixture" --db "$db_path" --workspace "$workspace_path")"
+doc_id="$(printf '%s' "$ingest_json" | "$python_bin" -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')"
+list_json="$("$cli_bin" list --db "$db_path" --workspace "$workspace_path")"
+json_path="$("$cli_bin" export "$doc_id" --format json --out "$demo_root/output/document.json" --db "$db_path" --workspace "$workspace_path")"
+html_path="$("$cli_bin" export "$doc_id" --format html --out "$demo_root/output/document.html" --db "$db_path" --workspace "$workspace_path")"
+
+echo "Ingest:"
+echo "$ingest_json"
+echo
+echo "List:"
+echo "$list_json"
+echo
+echo "JSON:"
+echo "$json_path"
+echo "HTML:"
+echo "$html_path"
+
+if [[ "${MAILATLAS_SKIP_PDF:-0}" == "1" ]]; then
+  exit 0
+fi
+
+pdf_path="$("$cli_bin" export "$doc_id" --format pdf --out "$demo_root/output/document.pdf" --db "$db_path" --workspace "$workspace_path")"
+echo "PDF:"
+echo "$pdf_path"

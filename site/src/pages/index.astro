@@ -1,0 +1,188 @@
+---
+import MarketingLayout from "../layouts/MarketingLayout.astro";
+---
+
+<MarketingLayout title="MailAtlas" description="Email ingestion for AI and data applications.">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"></span>
+      <span>MailAtlas</span>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="#overview">Overview</a>
+      <a href="#install">Install</a>
+      <a href="#fit">Where It Fits</a>
+      <a href="/docs/">Docs</a>
+      <a href="https://github.com/chiragagrawal/mailatlas">GitHub</a>
+    </nav>
+  </header>
+
+  <main class="landing-main">
+    <section class="hero" id="overview">
+      <div class="hero-copy">
+        <div class="eyebrow">Open-source email ingestion</div>
+        <h1>Parse email archives into structured documents.</h1>
+        <p class="lede">
+          MailAtlas turns <code>.eml</code> files and <code>mbox</code> archives into cleaned text,
+          HTML snapshots when they exist, extracted assets, metadata, and exportable artifacts your
+          application can index, retrieve, audit, or pass to models.
+        </p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/docs/getting-started/quickstart/">Read the quickstart</a>
+          <a class="button button-secondary" href="https://github.com/chiragagrawal/mailatlas">Browse the repository</a>
+        </div>
+        <div class="hero-meta" aria-label="Core capabilities">
+          <span>Cleaned text plus source metadata</span>
+          <span>Normalized HTML when the message has HTML</span>
+          <span>Inline asset and attachment extraction</span>
+          <span>JSON, HTML, Markdown, and PDF exports</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-grid">
+      <article class="proof-card">
+        <span class="proof-label">Inputs</span>
+        <strong><code>.eml</code> and <code>mbox</code></strong>
+        <p>Use mailbox exports, stored message files, and HTML email sources you already have.</p>
+      </article>
+      <article class="proof-card">
+        <span class="proof-label">Outputs</span>
+        <strong>Text, HTML, assets, metadata</strong>
+        <p>Store cleaned text for models and keep HTML and files for traceability, rendering, and review.</p>
+      </article>
+      <article class="proof-card">
+        <span class="proof-label">Exports</span>
+        <strong>JSON, Markdown, HTML, PDF</strong>
+        <p>Emit reusable application data and reviewable document artifacts from the same stored record.</p>
+      </article>
+    </section>
+
+    <section class="content-grid" id="install">
+      <article class="panel">
+        <div class="eyebrow">Install</div>
+        <h2>Start with the core package.</h2>
+        <p>
+          The CLI is the main interface. Start with the core install, then add optional extras only
+          if you need the demo API.
+        </p>
+        <div class="code-block code-block-large">
+          <div class="code-header">recommended</div>
+          <pre>python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .</pre>
+        </div>
+        <ul class="detail-list detail-list-tight">
+          <li>Use <code>python -m pip install -e ".[api]"</code> only if you want the example API.</li>
+          <li>Use <code>uv tool install --from . mailatlas</code> for a local CLI-style install.</li>
+          <li>Use Homebrew once the public tap exists; it is a distribution convenience, not the primary path.</li>
+        </ul>
+      </article>
+
+      <article class="panel">
+        <div class="eyebrow">Default storage</div>
+        <h2>Filesystem files plus SQLite metadata.</h2>
+        <p>
+          MailAtlas writes files to the filesystem and indexes them in SQLite by default. Treat that
+          as a reference implementation you can inspect, script against, or replace inside your own service.
+        </p>
+        <div class="workspace-grid">
+          <div class="code-block code-block-large">
+            <div class="code-header">reference store</div>
+            <pre>.mailatlas/
+  store.db
+  workspace/
+    raw/
+    html/
+    assets/
+    exports/</pre>
+          </div>
+          <div class="record-card code-block-large">
+            <div class="code-header">document record</div>
+            <dl class="record-list">
+              <div class="record-row">
+                <dt>subject</dt>
+                <dd>Regional freight signals tighten in the Midwest</dd>
+              </div>
+              <div class="record-row">
+                <dt>author</dt>
+                <dd>Mapline Research &lt;dispatch@mapline.example&gt;</dd>
+              </div>
+              <div class="record-row">
+                <dt>provenance</dt>
+                <dd><code>is_forwarded: false</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>cleaning</dt>
+                <dd><code>dropped_line_count: 4</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>asset refs</dt>
+                <dd><code>html/body.html</code>, <code>assets/chart.png</code></dd>
+              </div>
+              <div class="record-row">
+                <dt>exports</dt>
+                <dd><code>exports/report.json</code>, <code>exports/report.pdf</code></dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <ul class="detail-list detail-list-tight">
+          <li><code>raw/</code> preserves the original message bytes.</li>
+          <li><code>html/</code> stores a normalized HTML snapshot when the message contains HTML.</li>
+          <li><code>assets/</code> keeps extracted inline images and attachments.</li>
+          <li><code>exports/</code> stores JSON, Markdown, HTML, and PDF exports.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="content-grid" id="fit">
+      <article class="panel">
+        <div class="eyebrow">Why AI developers use it</div>
+        <h2>Email is messy. Models work better on normalized inputs.</h2>
+        <ul class="detail-list">
+          <li>Build a retrieval corpus from email without throwing away HTML or attachments.</li>
+          <li>Trace model inputs back to raw messages, extracted assets, and stable metadata.</li>
+          <li>Apply the same cleanup rules in indexing jobs, agents, and evaluation runs.</li>
+          <li>Render PDFs from stored HTML when you need a stable artifact for review or agent handoff.</li>
+        </ul>
+      </article>
+
+      <article class="panel">
+        <div class="eyebrow">Where it fits</div>
+        <h2>More useful than a MIME parser, narrower than a full mailbox platform.</h2>
+        <div class="comparison-table" role="table" aria-label="Comparison">
+          <div class="comparison-row comparison-head" role="row">
+            <span role="columnheader">Option</span>
+            <span role="columnheader">Best at</span>
+            <span role="columnheader">Weak at</span>
+          </div>
+          <div class="comparison-row" role="row">
+            <span role="cell">MailAtlas</span>
+            <span role="cell">Turning email into reusable application data</span>
+            <span role="cell">Live mailbox sync and hosted storage</span>
+          </div>
+          <div class="comparison-row" role="row">
+            <span role="cell">Inbox connectors</span>
+            <span role="cell">Search and question answering across connected tools</span>
+            <span role="cell">Reusable outputs and deterministic ingestion pipelines</span>
+          </div>
+          <div class="comparison-row" role="row">
+            <span role="cell">Generic email parsers</span>
+            <span role="cell">Low-level MIME decoding</span>
+            <span role="cell">Cleaned text, HTML snapshots, asset extraction, and metadata conventions</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="footer-cta">
+      <div>
+        <div class="eyebrow">Start here</div>
+        <h2>Install it, ingest a fixture, and inspect the output.</h2>
+        <p>The docs focus on the core workflow first: installation, quickstart, schema, CLI, Python API, and parser configuration.</p>
+      </div>
+      <a class="button button-primary" href="/docs/getting-started/installation/">Open the docs</a>
+    </section>
+  </main>
+</MarketingLayout>

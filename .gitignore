@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.mailatlas/
+.mailatlas-*/
+.build-venv/
+.tmp-*/
+.venv/
+.scratch/
+__pycache__/
+*.pyc
+*.egg-info/
+.coverage
+build/
+dist/
+site/.astro/
+site/dist/
+site/node_modules/
