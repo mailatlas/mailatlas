@@ -5,9 +5,9 @@ slug: docs/getting-started/quickstart
 ---
 
 MailAtlas ships with synthetic fixtures so you can verify the file-based ingest flow before
-pointing it at your own email. The core path is ingest, list, inspect, and export JSON while
-keeping raw email, HTML, and extracted attachments or inline assets linked together. PDF export is
-optional.
+pointing it at your own email. The core path is ingest, list, inspect, and export JSON or an
+AI-ready Markdown bundle while keeping raw email, HTML, and extracted attachments or inline assets
+linked together. PDF export is optional.
 
 This page uses `.eml` files already on disk. If you want MailAtlas to connect to a live mailbox,
 use `mailatlas sync` instead.
@@ -17,7 +17,7 @@ use `mailatlas sync` instead.
 - Use this page when your input already exists as files on disk.
 - You need a working MailAtlas install and Python 3.12.
 - You only need Chrome or Chromium if you plan to export PDF.
-- By the end, you will ingest sample messages, inspect one stored document, and export JSON.
+- By the end, you will ingest sample messages, inspect one stored document, export JSON, and write an AI-ready Markdown bundle.
 
 ## 1. Choose the local root
 
@@ -111,7 +111,22 @@ The command prints the output path you wrote, for example:
 /private/tmp/port-dwell.json
 ```
 
-## 6. Optionally export the same document as PDF
+## 6. Export the same document as an AI-ready Markdown bundle
+
+```bash
+mailatlas get <document-id> \
+  --format markdown \
+  --out ./port-dwell-markdown
+```
+
+This writes a directory bundle with:
+
+- `document.md`
+- `assets/` containing copied inline images and attachments referenced from the markdown
+
+The command prints the resolved path to `document.md`.
+
+## 7. Optionally export the same document as PDF
 
 ```bash
 mailatlas get <document-id> \
@@ -122,7 +137,7 @@ mailatlas get <document-id> \
 PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if the browser executable is not
 on the default path.
 
-## 7. Review the stored outputs
+## 8. Review the stored outputs
 
 During ingest, MailAtlas writes:
 
@@ -133,6 +148,8 @@ During ingest, MailAtlas writes:
 
 Exports go where you tell MailAtlas to write them with `--out`. If you omit `--out` for a PDF
 export, MailAtlas writes the PDF to `.mailatlas/exports/<document-id>.pdf`.
+Markdown export prints markdown to stdout by default with absolute local asset paths, or writes a
+bundle directory when you pass `--out <directory>`.
 
 ## Next step
 

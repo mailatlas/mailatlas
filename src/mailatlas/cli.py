@@ -247,7 +247,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="json",
         help="Output format.",
     )
-    get_parser.add_argument("--out", default=None, help="Optional path to write the output.")
+    get_parser.add_argument(
+        "--out",
+        default=None,
+        help="Optional output destination. Markdown expects a bundle directory; other formats write a file path.",
+    )
 
     list_parser = subparsers.add_parser("list", help="List stored documents.", parents=[root_parent])
     list_parser.add_argument("--query", default=None, help="Optional substring query.")

@@ -136,6 +136,14 @@ mailatlas get <document-id> \
   --out ./document.json
 ```
 
+Export the same document as an AI-friendly Markdown bundle with copied local assets:
+
+```bash
+mailatlas get <document-id> \
+  --format markdown \
+  --out ./document-markdown
+```
+
 Export the same document as a PDF artifact:
 
 ```bash
@@ -234,12 +242,14 @@ MailAtlas writes ordinary files to the filesystem and indexes them in SQLite by 
 - `raw/` for original message bytes
 - `html/` for normalized HTML bodies when present
 - `assets/` for extracted inline and attached files
-- `exports/` for JSON, Markdown, HTML, and PDF exports
+- `exports/` for JSON, HTML, and PDF file exports
 - `store.db` for the SQLite index and IMAP sync cursors
 
 These are ordinary files and metadata rows. If you are embedding MailAtlas inside a service, you
 can move them into your own blob store and database. PDF export uses headless Chrome or Chromium
 against the stored HTML snapshot when one exists, and falls back to generated HTML from cleaned text otherwise.
+Markdown export prints to stdout by default with absolute local asset paths, or writes a
+`document.md` plus copied `assets/` bundle when you pass `--out <directory>`.
 
 ## MailAtlas vs Alternatives
 

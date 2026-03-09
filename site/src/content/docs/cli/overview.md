@@ -81,8 +81,8 @@ attachment references.
 
 ```bash
 mailatlas get <document-id> \
-  --format html \
-  --out ./document.html
+  --format markdown \
+  --out ./document-markdown
 ```
 
 Supported formats are `json`, `markdown`, `html`, and `pdf`.
@@ -113,8 +113,10 @@ See [Parser Cleaning](/docs/config/parser-cleaning/) for behavior and tradeoffs.
 - `sync` prints per-folder sync results as JSON.
 - `list` prints stored document refs as JSON.
 - `get` prints one stored document as JSON by default.
-- `get --out ...` writes a file and prints the resolved output path.
+- `get --format markdown --out <directory>` writes `document.md` plus an `assets/` bundle and prints the resolved path to `document.md`.
+- `get --out ...` writes a file and prints the resolved output path for `json`, `html`, and `pdf`.
 - `get --format pdf` writes to `exports/<document-id>.pdf` if you omit `--out`.
+- `get --format markdown` prints markdown to stdout with absolute local asset paths when you omit `--out`.
 
 ## IMAP auth
 

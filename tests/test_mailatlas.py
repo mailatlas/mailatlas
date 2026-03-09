@@ -40,6 +40,7 @@ SVG_BYTES = (
     b'<text x="432" y="66" font-family="Arial, sans-serif" font-size="14" fill="#13253a">8-week average</text>'
     b'</svg>'
 )
+CSV_BYTES = b"port,dwell_days\nLAX,3.1\nSEA,2.4\n"
 
 
 def _write_message(path: Path, message: EmailMessage) -> None:
@@ -104,6 +105,21 @@ def _html_inline_message() -> EmailMessage:
     )
     html_part = message.get_payload()[1]
     html_part.add_related(SVG_BYTES, maintype="image", subtype="svg+xml", cid="<chart-1>", filename="chart.svg")
+    return message
+
+
+def _html_inline_attachment_message() -> EmailMessage:
+    message = _html_inline_message()
+    message.replace_header("Message-ID", "<html-attachment-1@example.com>")
+    message.add_attachment(CSV_BYTES, maintype="text", subtype="csv", filename="port-dwell.csv")
+    return message
+
+
+def _plain_message_with_attachments() -> EmailMessage:
+    message = _plain_message("Plain Attachments")
+    message.replace_header("Message-ID", "<plain-attachments-1@example.com>")
+    message.add_attachment(SVG_BYTES, maintype="image", subtype="svg+xml", filename="chart.svg")
+    message.add_attachment(CSV_BYTES, maintype="text", subtype="csv", filename="port-dwell.csv")
     return message
 
 
@@ -861,7 +877,7 @@ class MailAtlasTests(unittest.TestCase):
             self.assertIn("Footer remains.", uncleaned.body_text)
             self.assertIn("\n\n\n", uncleaned.body_text)
 
-    def test_export_markdown_includes_document_text_and_assets(self) -> None:
+    def test_export_markdown_renders_inline_images_from_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             eml_path = root / "inline.eml"
@@ -872,9 +888,73 @@ class MailAtlasTests(unittest.TestCase):
             markdown = atlas.export_document(refs[0].id, format="markdown")
 
             self.assertIn("# Inline HTML", markdown)
-            self.assertIn("Fallback body", markdown)
-            self.assertIn("## Assets", markdown)
-            self.assertIn("assets/", markdown)
+            self.assertIn("Hello HTML world.", markdown)
+            self.assertIn("![chart.svg](", markdown)
+            self.assertIn((atlas.workspace_path / "assets").as_posix(), markdown)
+            self.assertNotIn("Fallback body", markdown)
+            self.assertNotIn("## Assets", markdown)
+
+    def test_export_markdown_lists_non_image_attachments_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "inline-attachment.eml"
+            _write_message(eml_path, _html_inline_attachment_message())
+
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            refs = atlas.ingest_eml([eml_path])
+            markdown = atlas.export_document(refs[0].id, format="markdown")
+
+            self.assertIn("![chart.svg](", markdown)
+            self.assertIn("## Attachments", markdown)
+            self.assertIn("[port-dwell.csv](", markdown)
+            self.assertIn("(text/csv)", markdown)
+
+    def test_export_markdown_fallback_lists_images_and_attachments_without_html(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "plain-attachments.eml"
+            _write_message(eml_path, _plain_message_with_attachments())
+
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            refs = atlas.ingest_eml([eml_path])
+            markdown = atlas.export_document(refs[0].id, format="markdown")
+
+            self.assertIn("First paragraph.", markdown)
+            self.assertIn("## Images", markdown)
+            self.assertIn("![chart.svg](", markdown)
+            self.assertIn("## Attachments", markdown)
+            self.assertIn("[port-dwell.csv](", markdown)
+
+    def test_export_markdown_bundle_writes_document_and_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "inline-attachment.eml"
+            bundle_dir = root / "bundle"
+            _write_message(eml_path, _html_inline_attachment_message())
+
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            refs = atlas.ingest_eml([eml_path])
+            markdown_path = Path(atlas.export_document(refs[0].id, format="markdown", out_path=bundle_dir))
+            markdown = markdown_path.read_text(encoding="utf-8")
+
+            self.assertEqual(markdown_path, (bundle_dir / "document.md").resolve())
+            self.assertIn("![chart.svg](assets/001-chart.svg)", markdown)
+            self.assertIn("[port-dwell.csv](assets/002-port-dwell.csv)", markdown)
+            self.assertTrue((bundle_dir / "assets" / "001-chart.svg").exists())
+            self.assertTrue((bundle_dir / "assets" / "002-port-dwell.csv").exists())
+
+    def test_export_markdown_stdout_uses_absolute_asset_paths_without_new_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            eml_path = root / "inline-attachment.eml"
+            _write_message(eml_path, _html_inline_attachment_message())
+
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            refs = atlas.ingest_eml([eml_path])
+            markdown = atlas.export_document(refs[0].id, format="markdown")
+
+            self.assertIn((atlas.workspace_path / "assets").as_posix(), markdown)
+            self.assertEqual(list((atlas.workspace_path / "exports").iterdir()), [])
 
     def test_resolve_root_reads_dot_mailatlas_toml(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -954,6 +1034,13 @@ class MailAtlasTests(unittest.TestCase):
                     json_code = mailatlas_cli.main(["get", inline_ref["id"], "--format", "json", "--out", json_export_path.as_posix()])
                 written_json_path = Path(stdout.getvalue().strip())
 
+                markdown_export_dir = project_root / "port-dwell-markdown"
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    markdown_code = mailatlas_cli.main(
+                        ["get", inline_ref["id"], "--format", "markdown", "--out", markdown_export_dir.as_posix()]
+                    )
+                written_markdown_path = Path(stdout.getvalue().strip())
+
                 pdf_export_path = project_root / "port-dwell.pdf"
                 with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
                     pdf_code = mailatlas_cli.main(["get", inline_ref["id"], "--format", "pdf", "--out", pdf_export_path.as_posix()])
@@ -974,6 +1061,10 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(json_code, 0)
             self.assertEqual(written_json_path, json_export_path.resolve())
             self.assertEqual(json.loads(json_export_path.read_text(encoding="utf-8"))["id"], inline_ref["id"])
+            self.assertEqual(markdown_code, 0)
+            self.assertEqual(written_markdown_path, (markdown_export_dir / "document.md").resolve())
+            self.assertIn("assets/001-route-heatmap.svg", written_markdown_path.read_text(encoding="utf-8"))
+            self.assertTrue((markdown_export_dir / "assets" / "001-route-heatmap.svg").exists())
             self.assertEqual(pdf_code, 0)
             self.assertEqual(written_pdf_path, pdf_export_path.resolve())
             self.assertTrue(pdf_export_path.read_bytes().startswith(b"%PDF-1.4"))
