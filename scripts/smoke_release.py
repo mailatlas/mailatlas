@@ -19,7 +19,7 @@ def main() -> int:
     wheel = next(DIST.glob("mailatlas-*.whl"), None)
     sdist = next(DIST.glob("mailatlas-*.tar.gz"), None)
     if not wheel or not sdist:
-        raise SystemExit("Build artifacts not found in dist/. Run `python -m build` first.")
+        raise SystemExit("Build artifacts not found in dist/. Run `make smoke-release` or `python -m build` first.")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         venv_path = Path(temp_dir) / "venv"

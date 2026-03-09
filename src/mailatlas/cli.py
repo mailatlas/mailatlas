@@ -5,10 +5,13 @@ import json
 import os
 import re
 import sys
+import tempfile
+from email.message import EmailMessage
 from pathlib import Path
 
 from mailatlas.adapters.imap import ImapSyncError
 from mailatlas.core import ImapSyncConfig, MailAtlas, ParserConfig
+from mailatlas.core.pdf import find_pdf_browser
 
 
 def _root_parent_parser() -> argparse.ArgumentParser:
@@ -212,6 +215,82 @@ def _ingest_results_from_args(atlas: MailAtlas, args: argparse.Namespace) -> lis
     return results
 
 
+def _doctor_message() -> EmailMessage:
+    message = EmailMessage()
+    message["Subject"] = "MailAtlas doctor check"
+    message["From"] = "MailAtlas Doctor <doctor@mailatlas.dev>"
+    message["To"] = "team@example.com"
+    message["Date"] = "Mon, 04 Mar 2024 09:00:00 +0000"
+    message["Message-ID"] = "<mailatlas-doctor@example.com>"
+    message.set_content("Doctor check body.\n\nThis message verifies ingest, storage, and export paths.")
+    return message
+
+
+def _run_doctor(*, skip_pdf: bool, require_pdf: bool) -> tuple[dict[str, object], int]:
+    with tempfile.TemporaryDirectory(prefix="mailatlas-doctor-") as temp_dir:
+        doctor_root = Path(temp_dir) / ".mailatlas"
+        db_path, workspace_path = _workspace_paths_from_root(doctor_root)
+        atlas = MailAtlas(db_path=db_path, workspace_path=workspace_path)
+        eml_path = Path(temp_dir) / "doctor.eml"
+        eml_path.write_bytes(_doctor_message().as_bytes())
+
+        results = atlas.ingest_eml_results([eml_path])
+        document_ref = results[0].ref
+        listed = atlas.list_documents()
+        document = atlas.get_document(document_ref.id)
+        json_export_path = Path(
+            atlas.export_document(
+                document_ref.id,
+                format="json",
+                out_path=Path(temp_dir) / "doctor-document.json",
+            )
+        )
+        checks: dict[str, bool] = {
+            "ingest": results[0].status == "ingested",
+            "list": len(listed) == 1,
+            "get": document.id == document_ref.id,
+            "export_json": json_export_path.exists(),
+        }
+
+        payload: dict[str, object] = {
+            "status": "ok",
+            "root": doctor_root.as_posix(),
+            "document_ref": document_ref.to_dict(),
+            "checks": checks,
+            "json_export": json_export_path.as_posix(),
+            "pdf": {"status": "skipped"} if skip_pdf else None,
+        }
+
+        if not skip_pdf:
+            try:
+                browser = find_pdf_browser()
+                pdf_export_path = Path(
+                    atlas.export_document(
+                        document_ref.id,
+                        format="pdf",
+                        out_path=Path(temp_dir) / "doctor-document.pdf",
+                    )
+                )
+                checks["export_pdf"] = pdf_export_path.exists()
+                payload["pdf"] = {
+                    "status": "ok",
+                    "browser": browser.as_posix(),
+                    "path": pdf_export_path.as_posix(),
+                }
+            except RuntimeError as error:
+                checks["export_pdf"] = False
+                payload["pdf"] = {
+                    "status": "unavailable",
+                    "error": str(error),
+                }
+                if require_pdf:
+                    payload["status"] = "error"
+                else:
+                    payload["status"] = "warn"
+
+        return payload, 1 if payload["status"] == "error" else 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     root_parent = _root_parent_parser()
     parser = argparse.ArgumentParser(
@@ -278,12 +357,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_parser_config_arguments(sync_parser)
 
+    doctor_parser = subparsers.add_parser("doctor", help="Run a local self-check.", parents=[root_parent])
+    doctor_parser.add_argument(
+        "--skip-pdf",
+        action="store_true",
+        help="Skip the optional PDF export check.",
+    )
+    doctor_parser.add_argument(
+        "--require-pdf",
+        action="store_true",
+        help="Fail if PDF export is unavailable.",
+    )
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "doctor":
+        if args.skip_pdf and args.require_pdf:
+            print("--skip-pdf and --require-pdf cannot be used together.", file=sys.stderr)
+            return 1
+        try:
+            payload, exit_code = _run_doctor(skip_pdf=args.skip_pdf, require_pdf=args.require_pdf)
+        except (OSError, RuntimeError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+        print(json.dumps(payload, indent=2))
+        return exit_code
+
     root = _resolve_root(args.root)
     db_path, workspace_path = _workspace_paths_from_root(root)
     parser_config = _parser_config_from_args(args) if args.command == "ingest" else None

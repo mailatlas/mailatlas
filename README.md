@@ -44,9 +44,8 @@ artifacts, and package smoke checks.
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install mailatlas
+mailatlas doctor
 ```
-
-After that, use the `mailatlas` command directly.
 
 If you want the optional API extra from PyPI:
 
@@ -59,6 +58,7 @@ python -m pip install "mailatlas[api]"
 ```bash
 python3.12 -m pip install uv
 uv tool install mailatlas
+mailatlas doctor
 ```
 
 ### `brew`
@@ -66,6 +66,7 @@ uv tool install mailatlas
 ```bash
 brew tap mailatlas/mailatlas
 brew install mailatlas
+mailatlas doctor
 ```
 
 If Homebrew resolves a different formula named `mailatlas`, use:
@@ -82,8 +83,27 @@ the project:
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+make bootstrap-python
+mailatlas doctor
 ```
+
+If you are changing the docs site too:
+
+```bash
+make bootstrap-docs
+```
+
+Run `make help` to see the full local command surface.
+
+## Verify The Install
+
+```bash
+mailatlas doctor
+```
+
+`mailatlas doctor` runs a temporary self-check that verifies ingest, storage, and JSON export. It
+also checks PDF export when Chrome or Chromium is available, and reports a warning instead of
+failing if the browser is missing.
 
 ## Local Store
 
@@ -103,64 +123,11 @@ export MAILATLAS_HOME="$PWD/.mailatlas"
 
 You can also override the root per command with `--root`.
 
-## 60-Second Quickstart
+## Next Steps
 
-Ingest the synthetic fixtures shipped with the repo:
-
-```bash
-export MAILATLAS_HOME="$PWD/.mailatlas"
-
-mailatlas ingest \
-  data/fixtures/atlas-market-map.eml \
-  data/fixtures/atlas-founder-forward.eml \
-  data/fixtures/atlas-inline-chart.eml
-```
-
-List the stored documents:
-
-```bash
-mailatlas list
-```
-
-Read one document as JSON:
-
-```bash
-mailatlas get <document-id>
-```
-
-Write the same document to a JSON file:
-
-```bash
-mailatlas get <document-id> \
-  --format json \
-  --out ./document.json
-```
-
-Export the same document as an AI-friendly Markdown bundle with copied local assets:
-
-```bash
-mailatlas get <document-id> \
-  --format markdown \
-  --out ./document-markdown
-```
-
-Export the same document as a PDF artifact:
-
-```bash
-mailatlas get <document-id> \
-  --format pdf \
-  --out ./document.pdf
-```
-
-PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if the executable is not on the default path.
-
-Run the demo API:
-
-```bash
-uvicorn app:api --reload --port 5001
-```
-
-The demo API is intended for a source checkout and requires the `.[api]` extra.
+- Use [Quickstart walkthrough](./site/src/content/docs/getting-started/quickstart.md) for the file-based path with the shipped fixtures.
+- Use [Manual IMAP sync](./site/src/content/docs/getting-started/manual-imap-sync.md) when MailAtlas should connect to a live mailbox.
+- Use [CLI overview](./site/src/content/docs/cli/overview.md) for the full command surface.
 
 ## Core Use Cases
 
@@ -264,6 +231,7 @@ Markdown export prints to stdout by default with absolute local asset paths, or 
 - [Installation guide](./site/src/content/docs/getting-started/installation.md)
 - [Quickstart walkthrough](./site/src/content/docs/getting-started/quickstart.md)
 - [Manual IMAP sync](./site/src/content/docs/getting-started/manual-imap-sync.md)
+- [CLI overview](./site/src/content/docs/cli/overview.md)
 - [Workspace model](./site/src/content/docs/concepts/workspace-model.md)
 - [Document schema](./site/src/content/docs/concepts/document-schema.md)
 - [Parser cleaning config](./site/src/content/docs/config/parser-cleaning.md)
@@ -277,16 +245,11 @@ Markdown export prints to stdout by default with absolute local asset paths, or 
 
 ## Development
 
-Run the test suite:
-
 ```bash
-python -m unittest discover -s tests -v
-```
-
-Build the docs site:
-
-```bash
-cd site
-npm install
-npm run build
+make test
+make docs
+make smoke-release
+make demo-cli
+make demo-parser
+make doctor
 ```

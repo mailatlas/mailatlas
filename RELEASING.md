@@ -36,8 +36,14 @@ When those are present, the release workflow will render `release-assets/mailatl
 
 1. Update [`CHANGELOG.md`](./CHANGELOG.md).
 2. Confirm CI is green on `main`.
-3. Tag the release as `vX.Y.Z` and push the tag.
-4. Watch `.github/workflows/release.yml`:
+3. Run the local release smoke checks:
+
+   ```bash
+   make smoke-release
+   ```
+
+4. Tag the release as `vX.Y.Z` and push the tag.
+5. Watch `.github/workflows/release.yml`:
    - build sdist and wheel
    - publish to PyPI
    - render the Homebrew formula outside `dist/` so PyPI only sees Python distributions

@@ -679,6 +679,49 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(payload["id"], refs[0].id)
             self.assertEqual(payload["subject"], "Plain Subject")
 
+    def test_cli_doctor_can_skip_pdf_check(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            exit_code = mailatlas_cli.main(["doctor", "--skip-pdf"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["pdf"]["status"], "skipped")
+        self.assertTrue(payload["checks"]["export_json"])
+
+    def test_cli_doctor_warns_when_pdf_is_unavailable(self) -> None:
+        with mock.patch("mailatlas.cli.find_pdf_browser", side_effect=RuntimeError("No browser available")):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                exit_code = mailatlas_cli.main(["doctor"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "warn")
+        self.assertEqual(payload["pdf"]["status"], "unavailable")
+        self.assertFalse(payload["checks"]["export_pdf"])
+
+    def test_cli_doctor_requires_pdf_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            browser_path = Path(temp_dir) / "fake-browser.sh"
+            _write_fake_pdf_browser(browser_path)
+
+            previous_browser = os.environ.get("MAILATLAS_PDF_BROWSER")
+            os.environ["MAILATLAS_PDF_BROWSER"] = browser_path.as_posix()
+            try:
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(["doctor", "--require-pdf"])
+            finally:
+                if previous_browser is None:
+                    os.environ.pop("MAILATLAS_PDF_BROWSER", None)
+                else:
+                    os.environ["MAILATLAS_PDF_BROWSER"] = previous_browser
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["pdf"]["status"], "ok")
+        self.assertTrue(payload["checks"]["export_pdf"])
+
     def test_resolve_root_uses_env_before_project_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir) / "project"

@@ -9,16 +9,15 @@ reason about.
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[api,ai]"
+make bootstrap-python
 ```
 
 The editable install exposes `mailatlas` directly, so development commands should not need `PYTHONPATH=src`.
 
-For the docs site:
+If you are changing the docs site too:
 
 ```bash
-cd site
-npm install
+make bootstrap-docs
 ```
 
 ## Development Workflow
@@ -27,28 +26,34 @@ npm install
 - Prefer small, reviewable pull requests.
 - Add or update tests when parser behavior changes.
 - Keep the CLI and Python API examples in sync with docs.
+- Prefer the root `Makefile` targets over ad hoc one-off commands so local and CI workflows stay aligned.
 - Route usage questions and bug reports through the guidance in [`SUPPORT.md`](./SUPPORT.md).
 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+make test
 ```
 
 For packaging smoke checks:
 
 ```bash
-python -m pip install build
-python -m build
-python scripts/smoke_release.py
+make smoke-release
 ```
 
 If you change README copy or anything under `site/src/content`, rebuild the docs site before
 opening the PR:
 
 ```bash
-cd site
-npm run build
+make docs
+```
+
+For the end-to-end local self-check and demo flows:
+
+```bash
+make doctor
+make demo-cli
+make demo-parser
 ```
 
 ## Pull Requests

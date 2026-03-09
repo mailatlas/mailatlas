@@ -40,6 +40,13 @@ api = [
   "uvicorn",
   "python-dotenv>=1.0.1",
 ]
+dev = [
+  "build",
+  "coverage",
+  "fastapi",
+  "uvicorn",
+  "python-dotenv>=1.0.1",
+]
 
 [project.scripts]
 mailatlas = "mailatlas.cli:main"

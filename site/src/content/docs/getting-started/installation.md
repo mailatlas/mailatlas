@@ -18,7 +18,7 @@ After installation, you have two ways to bring email in:
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install mailatlas
-mailatlas --help
+mailatlas doctor
 ```
 
 The core toolkit does not require any cloud services.
@@ -26,12 +26,14 @@ The core toolkit does not require any cloud services.
 - Install `python -m pip install "mailatlas[api]"` only if you want the published API extra.
 - Install Chrome or Chromium only if you want PDF export.
 - Set `MAILATLAS_PDF_BROWSER` if the browser executable is not on the default path.
+- `mailatlas doctor` runs a temporary self-check for ingest, storage, and export.
 
 ## Optional path: uv
 
 ```bash
 python3.12 -m pip install uv
 uv tool install mailatlas
+mailatlas doctor
 ```
 
 ## Optional path: Homebrew
@@ -39,6 +41,7 @@ uv tool install mailatlas
 ```bash
 brew tap mailatlas/mailatlas
 brew install mailatlas
+mailatlas doctor
 ```
 
 If Homebrew resolves a different formula named `mailatlas`, use
@@ -51,7 +54,14 @@ Use a source checkout when you want the shipped fixtures, the demo API, or edita
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+make bootstrap-python
+mailatlas doctor
+```
+
+If you are changing the docs site too:
+
+```bash
+make bootstrap-docs
 ```
 
 ## Optional Demo API
@@ -59,9 +69,10 @@ python -m pip install -e .
 From a source checkout:
 
 ```bash
-python -m pip install -e ".[api]"
 uvicorn app:api --reload --port 5001
 ```
+
+Run `make help` to see the rest of the local developer commands.
 
 ## Next step
 

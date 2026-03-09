@@ -87,6 +87,16 @@ mailatlas get <document-id> \
 
 Supported formats are `json`, `markdown`, `html`, and `pdf`.
 
+### Run the self-check
+
+```bash
+mailatlas doctor
+```
+
+This creates a temporary store, ingests a synthetic message, and verifies JSON export. If Chrome or
+Chromium is available, it also verifies PDF export. Use `--skip-pdf` to skip the browser check or
+`--require-pdf` to fail when PDF export is unavailable.
+
 ## Common flags
 
 - `--root`: MailAtlas root directory

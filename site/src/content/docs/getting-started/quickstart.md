@@ -18,6 +18,7 @@ use `mailatlas sync` instead.
 - You need a working MailAtlas install and Python 3.12.
 - You only need Chrome or Chromium if you plan to export PDF.
 - By the end, you will ingest sample messages, inspect one stored document, export JSON, and write an AI-ready Markdown bundle.
+- If you only want a quick installation check first, run `mailatlas doctor`.
 
 ## 1. Choose the local root
 

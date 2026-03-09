@@ -5,10 +5,14 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 fixture="${1:-$ROOT/data/fixtures/atlas-inline-chart.eml}"
 demo_root="${2:-/tmp/mailatlas-parser-demo}"
-python_bin="${MAILATLAS_PYTHON:-$ROOT/.tmp-verify-312b/bin/python}"
+python_bin="${MAILATLAS_PYTHON:-}"
 
-if [[ ! -x "$python_bin" ]]; then
-  python_bin="$(command -v python3)"
+if [[ -z "$python_bin" && -x "$ROOT/.venv/bin/python" ]]; then
+  python_bin="$ROOT/.venv/bin/python"
+fi
+
+if [[ -z "$python_bin" ]]; then
+  python_bin="$(command -v python3 || true)"
 fi
 
 if [[ ! -x "$python_bin" ]]; then
