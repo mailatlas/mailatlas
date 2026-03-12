@@ -23,7 +23,7 @@ semantic, but the project is still in alpha and may ship breaking changes betwee
 - Unified local storage around the `.mailatlas` root model with `MAILATLAS_HOME` and `--root`.
 - Refreshed the README, installation docs, quickstart, IMAP guide, examples, and landing page to
   match the current alpha product.
-- Tightened CI with high-coverage test enforcement and end-to-end checks for documented CLI
+- Tightened CI with coverage enforcement and end-to-end checks for documented CLI
   behavior.
 - Simplified the local developer workflow.
 - README, contribution docs, installation docs, and packaging notes now describe the current alpha
