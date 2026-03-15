@@ -1,0 +1,66 @@
+name: Deploy Site
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - ".github/workflows/site-deploy.yml"
+      - ".nvmrc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Check Cloudflare deploy configuration
+        id: config
+        run: |
+          if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Cloudflare Pages auto-deploy is not active yet."
+            echo "::warning::Set repo variable CLOUDFLARE_ACCOUNT_ID and repo secret CLOUDFLARE_API_TOKEN to enable production deploys for the mailatlas Pages project."
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.config.outputs.ready == 'true'
+      - uses: actions/setup-node@v6
+        if: steps.config.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install site dependencies
+        if: steps.config.outputs.ready == 'true'
+        working-directory: site
+        run: npm ci
+      - name: Build site
+        if: steps.config.outputs.ready == 'true'
+        working-directory: site
+        run: npm run build
+      - name: Deploy to Cloudflare Pages
+        if: steps.config.outputs.ready == 'true'
+        working-directory: site
+        run: |
+          COMMIT_MESSAGE="${{ github.event.head_commit.message }}"
+          if [ -z "$COMMIT_MESSAGE" ]; then
+            COMMIT_MESSAGE="Deploy ${GITHUB_SHA}"
+          fi
+
+          npx wrangler pages deploy dist \
+            --project-name mailatlas \
+            --branch main \
+            --commit-hash "${GITHUB_SHA}" \
+            --commit-message "$COMMIT_MESSAGE"
