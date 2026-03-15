@@ -62,6 +62,10 @@ export default defineConfig({
         {
           label: "Product",
           items: [
+            {
+              label: "Product Vision",
+              link: "/docs/marketing/product-vision/",
+            },
             "docs/marketing/security-and-privacy",
             "docs/marketing/roadmap",
           ],

@@ -38,6 +38,11 @@ applications. Pick the path based on where the email lives and what you need to 
     <strong>When to use MailAtlas</strong>
     <p>See where MailAtlas is a good fit and where another tool is more appropriate.</p>
   </a>
+  <a class="docs-task-card" href="/docs/marketing/product-vision/">
+    <span class="docs-task-eyebrow">Why it exists</span>
+    <strong>Product vision</strong>
+    <p>Read why MailAtlas treats mailbox access as an AI-agent interface instead of another inbox UI.</p>
+  </a>
 </div>
 
 ## Choose an ingestion method
