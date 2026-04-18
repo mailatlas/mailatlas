@@ -1,11 +1,12 @@
 # MailAtlas
 
-**MailAtlas turns email files and manually synced IMAP folders into cleaned text, HTML, assets, metadata, and exportable artifacts for applications.**
+**MailAtlas turns email files and manually synced IMAP folders into cleaned text, HTML, assets, metadata, exportable artifacts, and local outbound email audit records for applications.**
 
-MailAtlas has two input paths:
+MailAtlas has three local email I/O paths:
 
 - ingest email files already on disk with `ingest`
 - connect to a live mailbox with `sync` and fetch selected folders manually
+- compose and send outbound email through providers you configure at runtime with `send`
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
 
@@ -17,9 +18,11 @@ MailAtlas produces:
 - document metadata and provenance
 - JSON, Markdown, HTML, and PDF exports from stored documents
 - manual, incremental IMAP sync into the same local store
+- outbound `.eml` snapshots, body files, attachment copies, provider status, and retry metadata
 
-MailAtlas is a library and CLI for parsing, storing, and exporting email for AI agents, retrieval
-systems, analytics pipelines, and archival systems.
+MailAtlas is a library and CLI for parsing, storing, exporting, sending through configured
+providers, and auditing email for AI agents, retrieval systems, analytics pipelines, and archival
+systems. It is not a hosted deliverability service or inbox client.
 
 ## Why MailAtlas
 
@@ -28,6 +31,8 @@ systems, analytics pipelines, and archival systems.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
 - Manually sync selected IMAP folders without storing mailbox credentials in the local store.
+- Send through SMTP or Cloudflare Email Service using runtime credentials without storing provider secrets.
+- Keep a local audit trail of outbound drafts, dry runs, sends, failures, BCC recipients, and attachments.
 - Start with the built-in filesystem and SQLite store, then copy the resulting files and metadata into your own storage stack if needed.
 
 ## Project Status
@@ -114,6 +119,7 @@ By default, MailAtlas writes to `.mailatlas` in the current directory:
 - `html/`
 - `assets/`
 - `exports/`
+- `outbound/`
 
 Set `MAILATLAS_HOME` once if you want MailAtlas to reuse a different root automatically:
 
@@ -168,10 +174,66 @@ mailatlas ingest data/fixtures/atlas-founder-forward.eml \
   --no-strip-boilerplate
 ```
 
+Render and audit an outbound message without contacting a provider:
+
+```bash
+mailatlas send \
+  --dry-run \
+  --from agent@example.com \
+  --to user@example.com \
+  --subject "Build complete" \
+  --text "The build passed."
+```
+
+Send through SMTP by providing credentials at runtime:
+
+```bash
+export MAILATLAS_SEND_PROVIDER=smtp
+export MAILATLAS_SMTP_HOST=smtp.example.com
+export MAILATLAS_SMTP_USERNAME=agent@example.com
+export MAILATLAS_SMTP_PASSWORD=app-password
+
+mailatlas send \
+  --from agent@example.com \
+  --to user@example.com \
+  --subject "Build complete" \
+  --text "The build passed."
+```
+
+For personal Gmail addresses, prefer Gmail API OAuth instead of SMTP app passwords. Create a
+Google OAuth desktop client, then authorize MailAtlas once:
+
+```bash
+mailatlas auth gmail \
+  --client-id "$MAILATLAS_GMAIL_CLIENT_ID" \
+  --client-secret "$MAILATLAS_GMAIL_CLIENT_SECRET" \
+  --email user@gmail.com
+
+mailatlas auth status gmail
+```
+
+Then send through the Gmail API:
+
+```bash
+mailatlas send \
+  --provider gmail \
+  --from user@gmail.com \
+  --to user@gmail.com \
+  --subject "Gmail API test" \
+  --text "Sent with Gmail API OAuth."
+```
+
+MailAtlas stores Gmail OAuth tokens outside the workspace by default and never writes them to
+`store.db`, raw snapshots, logs, or JSON send results. Revoke the local token with:
+
+```bash
+mailatlas auth logout gmail
+```
+
 ## Python API Example
 
 ```python
-from mailatlas import ImapSyncConfig, MailAtlas, ParserConfig
+from mailatlas import ImapSyncConfig, MailAtlas, OutboundMessage, ParserConfig, SendConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
@@ -200,6 +262,27 @@ pdf_path = atlas.export_document(
     refs[0].id,
     format="pdf",
 )
+
+dry_run = atlas.send_email(
+    OutboundMessage(
+        from_email="agent@example.com",
+        to=("user@example.com",),
+        subject="Build complete",
+        text="The build passed.",
+        idempotency_key="build-123",
+    ),
+    SendConfig(provider="smtp", dry_run=True),
+)
+
+gmail_send = atlas.send_email(
+    OutboundMessage(
+        from_email="user@gmail.com",
+        to=("user@gmail.com",),
+        subject="Gmail API test",
+        text="Sent with an OAuth access token.",
+    ),
+    SendConfig(provider="gmail", gmail_access_token="ya29..."),
+)
 ```
 
 ## Default Storage Layout
@@ -210,13 +293,16 @@ MailAtlas writes ordinary files to the filesystem and indexes them in SQLite by 
 - `html/` for normalized HTML bodies when present
 - `assets/` for extracted inline and attached files
 - `exports/` for JSON, HTML, and PDF file exports
-- `store.db` for the SQLite index and IMAP sync cursors
+- `outbound/raw/`, `outbound/text/`, `outbound/html/`, and `outbound/attachments/` for outbound audit artifacts
+- `store.db` for the SQLite index, IMAP sync cursors, and outbound send records
 
 These are ordinary files and metadata rows. If you are embedding MailAtlas inside a service, you
 can move them into your own blob store and database. PDF export uses headless Chrome or Chromium
 against the stored HTML snapshot when one exists, and falls back to generated HTML from cleaned text otherwise.
 Markdown export prints to stdout by default with absolute local asset paths, or writes a
 `document.md` plus copied `assets/` bundle when you pass `--out <directory>`.
+Outbound provider secrets are read from CLI flags, environment variables, or explicit Python
+`SendConfig` values at runtime. They are not written to SQLite, raw snapshots, logs, or JSON output.
 
 ## MailAtlas vs Alternatives
 

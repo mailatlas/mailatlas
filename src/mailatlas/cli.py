@@ -10,7 +10,20 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from mailatlas.adapters.imap import ImapSyncError
-from mailatlas.core import ImapSyncConfig, MailAtlas, ParserConfig
+from mailatlas.core import (
+    GMAIL_SEND_SCOPE,
+    GmailAuthConfig,
+    ImapSyncConfig,
+    MailAtlas,
+    OutboundAttachment,
+    OutboundMessage,
+    ParserConfig,
+    SendConfig,
+    gmail_auth_logout,
+    gmail_auth_status,
+    run_gmail_auth_flow,
+)
+from mailatlas.core.gmail_auth import FileTokenStore, load_valid_gmail_access_token
 from mailatlas.core.pdf import find_pdf_browser
 
 
@@ -180,6 +193,108 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
     )
 
 
+def _env_bool(env_name: str, default: bool) -> bool:
+    raw_value = os.environ.get(env_name)
+    if raw_value is None:
+        return default
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{env_name} must be true or false.")
+
+
+def _value_or_env_bool(value: bool | None, env_name: str, default: bool) -> bool:
+    if value is not None:
+        return value
+    return _env_bool(env_name, default)
+
+
+def _send_config_from_args(args: argparse.Namespace) -> SendConfig:
+    provider = _env_or_value(args.provider, "MAILATLAS_SEND_PROVIDER", "smtp")
+    provider = (provider or "smtp").strip().lower()
+    smtp_port_raw = _env_or_value(str(args.smtp_port) if args.smtp_port is not None else None, "MAILATLAS_SMTP_PORT", "587")
+    try:
+        smtp_port = int(smtp_port_raw or "587")
+    except ValueError as error:
+        raise ValueError("SMTP port must be an integer.") from error
+
+    gmail_access_token = _env_or_value(args.gmail_access_token, "MAILATLAS_GMAIL_ACCESS_TOKEN")
+    if provider == "gmail" and not args.dry_run and not gmail_access_token:
+        gmail_access_token = load_valid_gmail_access_token(store=FileTokenStore(args.gmail_token_file))
+
+    return SendConfig(
+        provider=provider,
+        dry_run=args.dry_run,
+        smtp_host=_env_or_value(args.smtp_host, "MAILATLAS_SMTP_HOST"),
+        smtp_port=smtp_port,
+        smtp_username=_env_or_value(args.smtp_username, "MAILATLAS_SMTP_USERNAME"),
+        smtp_password=_env_or_value(args.smtp_password, "MAILATLAS_SMTP_PASSWORD"),
+        smtp_starttls=_value_or_env_bool(args.smtp_starttls, "MAILATLAS_SMTP_STARTTLS", True),
+        smtp_ssl=_value_or_env_bool(args.smtp_ssl, "MAILATLAS_SMTP_SSL", False),
+        cloudflare_account_id=_env_or_value(args.cloudflare_account_id, "MAILATLAS_CLOUDFLARE_ACCOUNT_ID"),
+        cloudflare_api_token=_env_or_value(args.cloudflare_api_token, "MAILATLAS_CLOUDFLARE_API_TOKEN"),
+        cloudflare_api_base=_env_or_value(args.cloudflare_api_base, "MAILATLAS_CLOUDFLARE_API_BASE"),
+        gmail_access_token=gmail_access_token,
+        gmail_api_base=_env_or_value(args.gmail_api_base, "MAILATLAS_GMAIL_API_BASE"),
+        gmail_user_id=_env_or_value(args.gmail_user_id, "MAILATLAS_GMAIL_USER_ID", "me") or "me",
+    )
+
+
+def _gmail_auth_config_from_args(args: argparse.Namespace) -> GmailAuthConfig:
+    client_id = _env_or_value(args.client_id, "MAILATLAS_GMAIL_CLIENT_ID")
+    if not client_id:
+        raise ValueError("Gmail OAuth client id is required. Pass --client-id or set MAILATLAS_GMAIL_CLIENT_ID.")
+    scopes = tuple(args.scope or [GMAIL_SEND_SCOPE])
+    timeout = int(_env_or_value(str(args.timeout) if args.timeout is not None else None, "MAILATLAS_GMAIL_AUTH_TIMEOUT", "300") or "300")
+    return GmailAuthConfig(
+        client_id=client_id,
+        client_secret=_env_or_value(args.client_secret, "MAILATLAS_GMAIL_CLIENT_SECRET"),
+        email=_env_or_value(args.email, "MAILATLAS_GMAIL_EMAIL"),
+        scopes=scopes,
+        timeout_seconds=timeout,
+    )
+
+
+def _headers_from_args(header_values: list[str] | None) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for header in header_values or []:
+        name, separator, value = header.partition(":")
+        if not separator:
+            raise ValueError("--header must use 'Name: value' format.")
+        headers[name.strip()] = value.strip()
+    return headers
+
+
+def _outbound_message_from_args(args: argparse.Namespace) -> OutboundMessage:
+    text = args.text
+    if args.text_file:
+        text = Path(args.text_file).expanduser().read_text(encoding="utf-8")
+
+    html = None
+    if args.html_file:
+        html = Path(args.html_file).expanduser().read_text(encoding="utf-8")
+
+    return OutboundMessage(
+        from_email=args.from_email,
+        from_name=args.from_name,
+        to=tuple(args.to or ()),
+        cc=tuple(args.cc or ()),
+        bcc=tuple(args.bcc or ()),
+        reply_to=tuple(args.reply_to or ()),
+        subject=args.subject,
+        text=text,
+        html=html,
+        headers=_headers_from_args(args.header),
+        in_reply_to=args.in_reply_to,
+        references=tuple(args.references or ()),
+        source_document_id=args.source_document_id,
+        idempotency_key=args.idempotency_key,
+        attachments=tuple(OutboundAttachment(path=path) for path in (args.attach or ())),
+    )
+
+
 def _infer_ingest_type(path_value: str | Path) -> str:
     suffix = Path(path_value).suffix.lower()
     if suffix == ".eml":
@@ -295,7 +410,7 @@ def _build_parser() -> argparse.ArgumentParser:
     root_parent = _root_parent_parser()
     parser = argparse.ArgumentParser(
         prog="mailatlas",
-        description="Email ingestion for AI agents and data applications.",
+        description="Local email ingestion, export, sending, and audit trails for AI agents and data applications.",
         parents=[root_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -357,6 +472,68 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_parser_config_arguments(sync_parser)
 
+    send_parser = subparsers.add_parser(
+        "send",
+        help="Compose, send, and audit an outbound email.",
+        parents=[root_parent],
+    )
+    send_parser.add_argument("--provider", default=None, help="Send provider or MAILATLAS_SEND_PROVIDER.")
+    send_parser.add_argument("--from", dest="from_email", required=True, help="Sender email address.")
+    send_parser.add_argument("--from-name", default=None, help="Optional sender display name.")
+    send_parser.add_argument("--to", action="append", default=None, required=True, help="Recipient address. Repeat for multiple recipients.")
+    send_parser.add_argument("--cc", action="append", default=None, help="CC recipient. Repeat for multiple recipients.")
+    send_parser.add_argument("--bcc", action="append", default=None, help="BCC recipient. Stored for audit but omitted from MIME headers.")
+    send_parser.add_argument("--reply-to", action="append", default=None, help="Reply-To address. Repeat for multiple addresses.")
+    send_parser.add_argument("--subject", required=True, help="Message subject.")
+    body_group = send_parser.add_mutually_exclusive_group()
+    body_group.add_argument("--text", default=None, help="Inline plain-text body.")
+    body_group.add_argument("--text-file", default=None, help="Path to a plain-text body file.")
+    send_parser.add_argument("--html-file", default=None, help="Path to an HTML body file.")
+    send_parser.add_argument("--attach", action="append", default=None, help="Attachment path. Repeat for multiple attachments.")
+    send_parser.add_argument("--header", action="append", default=None, help="Custom header in 'Name: value' format.")
+    send_parser.add_argument("--in-reply-to", default=None, help="Message ID this email replies to.")
+    send_parser.add_argument("--references", action="append", default=None, help="Message ID reference. Repeat for multiple references.")
+    send_parser.add_argument("--source-document-id", default=None, help="Optional inbound document link.")
+    send_parser.add_argument("--idempotency-key", default=None, help="Caller-provided retry key.")
+    send_parser.add_argument("--dry-run", action="store_true", help="Render and store the message without contacting a provider.")
+    send_parser.add_argument("--smtp-host", default=None, help="SMTP hostname or MAILATLAS_SMTP_HOST.")
+    send_parser.add_argument("--smtp-port", type=int, default=None, help="SMTP port or MAILATLAS_SMTP_PORT.")
+    send_parser.add_argument("--smtp-username", default=None, help="SMTP username or MAILATLAS_SMTP_USERNAME.")
+    send_parser.add_argument("--smtp-password", default=None, help="SMTP password or MAILATLAS_SMTP_PASSWORD.")
+    send_parser.add_argument("--smtp-starttls", dest="smtp_starttls", action="store_true", default=None, help="Use SMTP STARTTLS.")
+    send_parser.add_argument("--no-smtp-starttls", dest="smtp_starttls", action="store_false", help="Disable SMTP STARTTLS.")
+    send_parser.add_argument("--smtp-ssl", dest="smtp_ssl", action="store_true", default=None, help="Use SMTP over SSL.")
+    send_parser.add_argument("--no-smtp-ssl", dest="smtp_ssl", action="store_false", help="Disable SMTP over SSL.")
+    send_parser.add_argument("--cloudflare-account-id", default=None, help="Cloudflare account id or MAILATLAS_CLOUDFLARE_ACCOUNT_ID.")
+    send_parser.add_argument("--cloudflare-api-token", default=None, help="Cloudflare API token or MAILATLAS_CLOUDFLARE_API_TOKEN.")
+    send_parser.add_argument("--cloudflare-api-base", default=None, help="Cloudflare API base URL or MAILATLAS_CLOUDFLARE_API_BASE.")
+    send_parser.add_argument("--gmail-access-token", default=None, help="Gmail OAuth access token or MAILATLAS_GMAIL_ACCESS_TOKEN.")
+    send_parser.add_argument("--gmail-api-base", default=None, help="Gmail API base URL or MAILATLAS_GMAIL_API_BASE.")
+    send_parser.add_argument("--gmail-user-id", default=None, help="Gmail API user id or MAILATLAS_GMAIL_USER_ID. Defaults to me.")
+    send_parser.add_argument("--gmail-token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+
+    auth_parser = subparsers.add_parser(
+        "auth",
+        help="Manage provider authentication.",
+    )
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
+    gmail_auth_parser = auth_subparsers.add_parser("gmail", help="Authorize Gmail API sending.")
+    gmail_auth_parser.add_argument("--client-id", default=None, help="Google OAuth client id or MAILATLAS_GMAIL_CLIENT_ID.")
+    gmail_auth_parser.add_argument("--client-secret", default=None, help="Google OAuth client secret or MAILATLAS_GMAIL_CLIENT_SECRET.")
+    gmail_auth_parser.add_argument("--email", default=None, help="Gmail address hint stored for status output.")
+    gmail_auth_parser.add_argument("--scope", action="append", default=None, help=f"OAuth scope. Defaults to {GMAIL_SEND_SCOPE}.")
+    gmail_auth_parser.add_argument("--token-file", default=None, help="Path to store Gmail OAuth token JSON.")
+    gmail_auth_parser.add_argument("--timeout", type=int, default=None, help="Seconds to wait for the local OAuth callback.")
+    gmail_auth_parser.add_argument("--no-browser", action="store_true", help="Print the OAuth URL instead of opening a browser.")
+
+    auth_status_parser = auth_subparsers.add_parser("status", help="Show provider auth status.")
+    auth_status_parser.add_argument("provider", choices=["gmail"], help="Provider to inspect.")
+    auth_status_parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+
+    auth_logout_parser = auth_subparsers.add_parser("logout", help="Remove stored provider auth.")
+    auth_logout_parser.add_argument("provider", choices=["gmail"], help="Provider to remove.")
+    auth_logout_parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+
     doctor_parser = subparsers.add_parser("doctor", help="Run a local self-check.", parents=[root_parent])
     doctor_parser.add_argument(
         "--skip-pdf",
@@ -388,6 +565,29 @@ def main(argv: list[str] | None = None) -> int:
 
         print(json.dumps(payload, indent=2))
         return exit_code
+
+    if args.command == "auth":
+        try:
+            store = FileTokenStore(getattr(args, "token_file", None))
+            if args.auth_command == "gmail":
+                result = run_gmail_auth_flow(
+                    _gmail_auth_config_from_args(args),
+                    store=store,
+                    open_browser=not args.no_browser,
+                    notify=lambda url: print(f"Open this URL to authorize Gmail sending:\n{url}", file=sys.stderr),
+                )
+            elif args.auth_command == "status" and args.provider == "gmail":
+                result = gmail_auth_status(store=store)
+            elif args.auth_command == "logout" and args.provider == "gmail":
+                result = gmail_auth_logout(store=store)
+            else:
+                parser.error("Unsupported auth command")
+        except (OSError, TimeoutError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+        print(json.dumps(result.to_dict(), indent=2))
+        return 0
 
     root = _resolve_root(args.root)
     db_path, workspace_path = _workspace_paths_from_root(root)
@@ -441,6 +641,16 @@ def main(argv: list[str] | None = None) -> int:
 
         print(json.dumps(result.to_dict(), indent=2))
         return 1 if result.has_errors() else 0
+
+    if args.command == "send":
+        try:
+            result = atlas.send_email(_outbound_message_from_args(args), _send_config_from_args(args))
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+        print(json.dumps(result.to_dict(), indent=2))
+        return 1 if result.status == "error" else 0
 
     parser.error("Unsupported command")
     return 1

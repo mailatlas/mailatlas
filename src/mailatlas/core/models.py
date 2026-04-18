@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -80,6 +81,160 @@ class ImapSyncConfig:
             "folders": list(self.folders),
             "parser_config": self.parser_config.to_dict(),
         }
+
+
+def _string_tuple(value: str | tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
+
+
+@dataclass(frozen=True)
+class OutboundAttachment:
+    path: str | Path
+    filename: str | None = None
+    mime_type: str | None = None
+
+
+@dataclass(frozen=True)
+class OutboundMessage:
+    from_email: str
+    to: tuple[str, ...]
+    subject: str
+    text: str | None = None
+    html: str | None = None
+    from_name: str | None = None
+    cc: tuple[str, ...] = ()
+    bcc: tuple[str, ...] = ()
+    reply_to: tuple[str, ...] = ()
+    in_reply_to: str | None = None
+    references: tuple[str, ...] = ()
+    headers: dict[str, str] = field(default_factory=dict)
+    attachments: tuple[OutboundAttachment, ...] = ()
+    source_document_id: str | None = None
+    idempotency_key: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "from_email", str(self.from_email).strip() if self.from_email is not None else "")
+        object.__setattr__(self, "to", _string_tuple(self.to))
+        object.__setattr__(self, "cc", _string_tuple(self.cc))
+        object.__setattr__(self, "bcc", _string_tuple(self.bcc))
+        object.__setattr__(self, "reply_to", _string_tuple(self.reply_to))
+        object.__setattr__(self, "references", _string_tuple(self.references))
+        object.__setattr__(self, "headers", dict(self.headers))
+        object.__setattr__(self, "attachments", tuple(self.attachments))
+
+
+@dataclass(frozen=True)
+class SendConfig:
+    provider: str
+    dry_run: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = field(default=None, repr=False)
+    smtp_password: str | None = field(default=None, repr=False)
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = field(default=None, repr=False)
+    cloudflare_api_base: str | None = None
+    gmail_access_token: str | None = field(default=None, repr=False)
+    gmail_api_base: str | None = None
+    gmail_user_id: str = "me"
+
+    def __post_init__(self) -> None:
+        provider = self.provider.strip().lower()
+        object.__setattr__(self, "provider", provider)
+        object.__setattr__(self, "smtp_host", self.smtp_host.strip() if self.smtp_host else None)
+        object.__setattr__(self, "cloudflare_account_id", self.cloudflare_account_id.strip() if self.cloudflare_account_id else None)
+        object.__setattr__(self, "cloudflare_api_base", self.cloudflare_api_base.rstrip("/") if self.cloudflare_api_base else None)
+        object.__setattr__(self, "gmail_api_base", self.gmail_api_base.rstrip("/") if self.gmail_api_base else None)
+        object.__setattr__(self, "gmail_user_id", self.gmail_user_id.strip() if self.gmail_user_id else "me")
+
+        if provider not in {"smtp", "cloudflare", "gmail"}:
+            raise ValueError("Send provider must be 'smtp', 'cloudflare', or 'gmail'.")
+        if self.smtp_port < 1 or self.smtp_port > 65535:
+            raise ValueError("SMTP port must be between 1 and 65535.")
+        if self.smtp_starttls and self.smtp_ssl:
+            raise ValueError("Choose either SMTP STARTTLS or SMTP SSL, not both.")
+
+
+@dataclass(frozen=True)
+class SendResult:
+    id: str
+    status: str
+    provider: str
+    provider_message_id: str | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OutboundMessageRef:
+    id: str
+    status: str
+    provider: str
+    from_email: str
+    to: tuple[str, ...]
+    subject: str
+    created_at: str
+    sent_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["to"] = list(self.to)
+        return payload
+
+
+@dataclass(frozen=True)
+class StoredOutboundAttachment:
+    id: str
+    outbound_id: str
+    ordinal: int
+    filename: str
+    mime_type: str
+    file_path: str
+    sha256: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OutboundMessageRecord:
+    id: str
+    status: str
+    provider: str
+    provider_message_id: str | None
+    from_email: str
+    from_name: str | None
+    to: tuple[str, ...]
+    cc: tuple[str, ...]
+    bcc: tuple[str, ...]
+    reply_to: tuple[str, ...]
+    subject: str
+    text_path: str | None
+    html_path: str | None
+    raw_path: str
+    source_document_id: str | None
+    metadata: dict[str, Any]
+    created_at: str
+    sent_at: str | None
+    error: str | None
+    attachments: tuple[StoredOutboundAttachment, ...] = ()
+
+    def to_dict(self, *, include_bcc: bool = True) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["to"] = list(self.to)
+        payload["cc"] = list(self.cc)
+        payload["reply_to"] = list(self.reply_to)
+        payload["attachments"] = [attachment.to_dict() for attachment in self.attachments]
+        payload["bcc"] = list(self.bcc) if include_bcc else []
+        return payload
 
 
 @dataclass

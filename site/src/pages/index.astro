@@ -3,8 +3,8 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
 ---
 
 <MarketingLayout
-  title="MailAtlas: email ingestion for AI agents and data apps"
-  description="MailAtlas: email ingestion for AI agents and data apps."
+  title="MailAtlas: local email I/O for AI agents and data apps"
+  description="MailAtlas: local email ingestion, export, sending, and audit trails for AI agents and data apps."
 >
   <header class="topbar">
     <a class="brand" href="/">
@@ -25,13 +25,13 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
     <section class="hero" id="overview">
       <div class="hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow">Open-source email ingestion</div>
-          <h1>MailAtlas: email ingestion for AI agents and data apps.</h1>
+          <div class="eyebrow">Open-source local email I/O</div>
+          <h1>MailAtlas: local email I/O for AI agents and data apps.</h1>
           <p class="lede">
             Read <code>.eml</code> files, import <code>mbox</code> mailbox files, or sync selected
             IMAP folders into one local store. MailAtlas keeps raw messages, cleaned text, HTML,
-            inline images, file attachments, and metadata together so the same email can power AI,
-            search, audits, and analytics.
+            inline images, file attachments, metadata, outbound snapshots, and send records together
+            so the same email workspace can power AI, search, audits, and analytics.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="/docs/getting-started/quickstart/">Try file ingest</a>
@@ -39,19 +39,21 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
           </div>
           <p class="hero-note">
             Start with files when your email is already on disk. Use <code>sync</code> when you
-            need MailAtlas to connect to a live mailbox and fetch folders incrementally.
+            need MailAtlas to connect to a live mailbox and fetch folders incrementally. Use
+            <code>send</code> when your app needs outbound email through providers you configure.
           </p>
           <div class="hero-meta" aria-label="Core capabilities">
             <span>Open source</span>
             <span>No hosted service required</span>
             <span>Stores IMAP cursors, not mailbox credentials</span>
+            <span>Sends without storing provider secrets</span>
             <span>Preserves inline images and attachments</span>
             <span>JSON, Markdown, HTML, PDF exports</span>
           </div>
         </div>
 
         <aside class="hero-proof" aria-label="Product model">
-          <div class="eyebrow">Choose an ingestion method</div>
+          <div class="eyebrow">Choose an email path</div>
           <div class="mode-stack">
             <article class="mode-card">
               <span class="mode-card-accent">From files</span>
@@ -63,8 +65,13 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
               <strong><code>sync</code></strong>
               <p>Fetch selected folders over IMAP into the same local store.</p>
             </article>
+            <article class="mode-card">
+              <span class="mode-card-accent">To configured providers</span>
+              <strong><code>send</code></strong>
+              <p>Render a local outbound record, then send through SMTP or Cloudflare Email Service.</p>
+            </article>
           </div>
-          <div class="flow-caption">All ingest paths create the same stored document schema.</div>
+          <div class="flow-caption">Inbound paths create stored documents. Outbound paths create audit records.</div>
           <div class="record-card hero-record">
             <div class="code-header">stored document</div>
             <dl class="record-list">
@@ -110,26 +117,31 @@ import MarketingLayout from "../layouts/MarketingLayout.astro";
         <strong>Selected folders from a live mailbox</strong>
         <p>Use this when the messages still live in an inbox and you want MailAtlas to fetch them incrementally.</p>
       </article>
+      <article class="proof-card">
+        <span class="proof-label"><code>send</code></span>
+        <strong>Outbound email through your provider</strong>
+        <p>Use this when your application needs a local send record plus SMTP or Cloudflare delivery.</p>
+      </article>
     </section>
 
     <section class="content-grid" id="fit">
       <article class="panel">
         <div class="eyebrow">Use MailAtlas if</div>
-        <h2>Your goal is to parse and store email for software systems, not to replace an inbox client.</h2>
+        <h2>Your goal is local email I/O for software systems, not to replace an inbox client.</h2>
         <ul class="detail-list">
           <li>You need cleaned text plus links back to the raw email, HTML, inline images, and file attachments.</li>
-          <li>You want one ingest path for retrieval systems, analytics, audit trails, or agent tooling.</li>
+          <li>You want local ingest and outbound audit trails for retrieval systems, analytics, or agent tooling.</li>
           <li>You want stable export formats such as JSON, Markdown, HTML, and PDF.</li>
-          <li>You want to start with files and add manual IMAP sync later without changing the stored schema.</li>
+          <li>You want to start with files, add manual IMAP sync later, and send through providers without storing secrets.</li>
         </ul>
       </article>
 
       <article class="panel">
         <div class="eyebrow">Do not confuse it with</div>
-        <h2>MailAtlas is an ingestion layer, not a mailbox product.</h2>
+        <h2>MailAtlas is a local email layer, not a hosted mailbox or deliverability product.</h2>
         <ul class="detail-list">
           <li>It is not background mailbox sync or a managed connector service.</li>
-          <li>It is not hosted inbox search, inbox chat, or a full mailbox client.</li>
+          <li>It is not hosted inbox search, inbox chat, a full mailbox client, or a deliverability service.</li>
           <li>It is not just a MIME decoder. It produces normalized outputs you can inspect, store, and pass to other systems.</li>
           <li>It is not trying to hide the source. Raw provenance stays attached to the stored document.</li>
         </ul>
@@ -183,7 +195,8 @@ mailatlas list</pre>
   raw/
   html/
   assets/
-  exports/</pre>
+  exports/
+  outbound/</pre>
           </div>
           <div class="record-card code-block-large">
             <div class="code-header">stored document</div>

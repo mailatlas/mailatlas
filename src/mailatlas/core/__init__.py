@@ -5,13 +5,21 @@ from .models import (
     ImapSyncConfig,
     ImapSyncResult,
     NormalizedDocument,
+    OutboundAttachment,
+    OutboundMessage,
+    OutboundMessageRecord,
+    OutboundMessageRef,
     ParsedAsset,
     ParserConfig,
+    SendConfig,
+    SendResult,
     StoredAsset,
+    StoredOutboundAttachment,
 )
 from .parsing import parse_eml
 from .service import MailAtlas
 from .storage import WorkspaceStore
+from .gmail_auth import GMAIL_SEND_SCOPE, GmailAuthConfig, gmail_auth_logout, gmail_auth_status, run_gmail_auth_flow
 
 __all__ = [
     "DocumentRecord",
@@ -21,9 +29,21 @@ __all__ = [
     "ImapSyncResult",
     "MailAtlas",
     "NormalizedDocument",
+    "OutboundAttachment",
+    "OutboundMessage",
+    "OutboundMessageRecord",
+    "OutboundMessageRef",
     "ParsedAsset",
     "ParserConfig",
+    "SendConfig",
+    "SendResult",
     "StoredAsset",
+    "StoredOutboundAttachment",
     "WorkspaceStore",
+    "GMAIL_SEND_SCOPE",
+    "GmailAuthConfig",
+    "gmail_auth_logout",
+    "gmail_auth_status",
     "parse_eml",
+    "run_gmail_auth_flow",
 ]

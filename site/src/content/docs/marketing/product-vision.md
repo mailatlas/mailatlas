@@ -12,11 +12,11 @@ computer-use tooling driving Gmail or Outlook. That can work, but it works badly
 expensive, fragile, and hard to reason about. The model spends tokens and attention on clicking,
 scrolling, waiting, and recovering from UI noise instead of understanding the mailbox itself.
 
-MailAtlas takes a different approach. It gives AI agents direct access to mailbox contents in forms
+MailAtlas takes a different approach. It gives AI agents direct access to email artifacts in forms
 that fit agent tasks. Instead of forcing the model to act like a person operating an inbox,
-MailAtlas turns email into representations an agent can use to read, search, and reason over a
-mailbox. The goal is not to build another mail client. The goal is to make mailbox access native to
-the agent loop.
+MailAtlas turns email into representations an agent can use to read, search, reason over, compose,
+send through configured providers, and audit locally. The goal is not to build another mail client.
+The goal is to make mailbox access native to the agent loop.
 
 ## Email is not just text
 
@@ -46,6 +46,10 @@ MailAtlas includes a local SQLite-backed store for exactly this reason. It turns
 searchable working state that can be queried directly, exposed through an in-process MCP surface, or
 accessed through the CLI in environments where the agent has shell access.
 
+Outbound email follows the same principle. A send should leave behind a local, inspectable record:
+what was rendered, which provider was called, which recipients were used, whether the provider
+accepted the message, and which retry key prevents accidental duplicate sends.
+
 ## The beliefs behind MailAtlas
 
 MailAtlas is built on a few simple beliefs:
@@ -53,14 +57,16 @@ MailAtlas is built on a few simple beliefs:
 - mailbox access for AI agents should be deterministic wherever possible
 - no single representation is sufficient for every reasoning task
 - retrieval and access are part of the same problem
+- outbound actions should be explicit, auditable, and provider-owned
 - local control matters because email is sensitive and users should not have to hand it to a hosted
   black box just to make it useful to an agent
 
 ## What MailAtlas is not
 
-MailAtlas is not trying to be an inbox client, a sending platform, or a generic unstructured-data
-cleanup system. Its job is narrower and more specific. It is the mailbox access layer that lets AI
-agents read, inspect, retrieve, and reason over email reliably.
+MailAtlas is not trying to be an inbox client, a hosted deliverability service, or a generic
+unstructured-data cleanup system. Its job is narrower and more specific. It is the local email I/O
+layer that lets AI agents read, inspect, retrieve, compose, send through configured providers, and
+audit email reliably.
 
 ## The long-term ambition
 

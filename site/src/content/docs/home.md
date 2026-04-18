@@ -1,11 +1,12 @@
 ---
 title: MailAtlas Docs
-description: Choose the right path for file ingest, IMAP sync, integration, attachment handling, and storage details.
+description: Choose the right path for file ingest, IMAP sync, outbound email, integration, attachment handling, and storage details.
 slug: docs
 ---
 
 MailAtlas extracts cleaned text, HTML, assets, and metadata from email for use in your own
-applications. Pick the path based on where the email lives and what you need to do next.
+applications. It can also render and audit outbound email sent through providers you configure.
+Pick the path based on where the email lives and what you need to do next.
 
 <div class="docs-task-grid">
   <a class="docs-task-card" href="/docs/getting-started/quickstart/">
@@ -21,12 +22,17 @@ applications. Pick the path based on where the email lives and what you need to 
   <a class="docs-task-card" href="/docs/cli/overview/">
     <span class="docs-task-eyebrow">Command line</span>
     <strong>CLI overview</strong>
-    <p>See the core commands for ingest, sync, inspect, and export.</p>
+    <p>See the core commands for ingest, sync, inspect, export, and send.</p>
   </a>
   <a class="docs-task-card" href="/docs/python/overview/">
     <span class="docs-task-eyebrow">Embed it</span>
     <strong>Python API</strong>
     <p>Use parse-only calls or storage-backed APIs inside your own application code.</p>
+  </a>
+  <a class="docs-task-card" href="/docs/providers/gmail/">
+    <span class="docs-task-eyebrow">Personal Gmail</span>
+    <strong>Gmail provider</strong>
+    <p>Send from Gmail with Gmail API OAuth and the narrow <code>gmail.send</code> scope.</p>
   </a>
   <a class="docs-task-card" href="/docs/concepts/document-schema/">
     <span class="docs-task-eyebrow">Inspect outputs</span>
@@ -45,10 +51,11 @@ applications. Pick the path based on where the email lives and what you need to 
   </a>
 </div>
 
-## Choose an ingestion method
+## Choose an email path
 
 - `ingest`: use when you already have `.eml` files or an `mbox` mailbox file on disk.
 - `sync`: use when MailAtlas should connect to a live mailbox and fetch selected folders incrementally.
+- `send`: use when MailAtlas should render an outbound audit record and send through SMTP or Cloudflare Email Service.
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync. If the messages
 are still in a live inbox and you want MailAtlas to read them directly, use `sync`.
@@ -70,7 +77,7 @@ are still in a live inbox and you want MailAtlas to read them directly, use `syn
   </div>
   <div class="docs-term-card">
     <strong>root</strong>
-    <p>The directory that holds raw email, HTML snapshots, extracted assets, exports, and the SQLite index.</p>
+    <p>The directory that holds raw email, HTML snapshots, extracted assets, exports, outbound records, and the SQLite index.</p>
   </div>
   <div class="docs-term-card">
     <strong>document</strong>
@@ -79,6 +86,10 @@ are still in a live inbox and you want MailAtlas to read them directly, use `syn
   <div class="docs-term-card">
     <strong>export</strong>
     <p>A derived JSON, Markdown, HTML, or PDF artifact written from a stored document.</p>
+  </div>
+  <div class="docs-term-card">
+    <strong>outbound record</strong>
+    <p>A local audit row plus rendered files for a draft, dry run, sent message, queued message, or failed send.</p>
   </div>
 </div>
 

@@ -3,11 +3,14 @@ from __future__ import annotations
 import imaplib
 import io
 import mailbox
+import base64
 import json
 import os
 import sqlite3
 import sys
 import tempfile
+import time
+import urllib.parse
 import unittest
 from unittest import mock
 from email.message import EmailMessage
@@ -16,8 +19,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mailatlas.cli as mailatlas_cli
-from mailatlas.core import ImapFolderSyncResult, ImapSyncConfig, ImapSyncResult, MailAtlas, ParserConfig, parse_eml
+from mailatlas.core import (
+    ImapFolderSyncResult,
+    ImapSyncConfig,
+    ImapSyncResult,
+    MailAtlas,
+    OutboundAttachment,
+    OutboundMessage,
+    ParserConfig,
+    SendConfig,
+    SendResult,
+    parse_eml,
+)
 from mailatlas.core import pdf as pdf_module
+from mailatlas.core.gmail_auth import FileTokenStore, GmailAuthConfig, GmailAuthResult, exchange_gmail_authorization_code
 
 
 SVG_BYTES = (
@@ -207,6 +222,53 @@ class FakeImapConnection:
     def logout(self):
         self.logout_calls += 1
         return "BYE", [b"LOGOUT completed"]
+
+
+class FakeSmtpServer:
+    instances: list["FakeSmtpServer"] = []
+
+    def __init__(self, host: str, port: int, timeout: int | None = None, context=None) -> None:
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.context = context
+        self.starttls_calls = 0
+        self.login_calls: list[tuple[str, str]] = []
+        self.send_calls: list[tuple[EmailMessage, str | None, list[str] | None]] = []
+        FakeSmtpServer.instances.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def starttls(self, context=None):
+        self.starttls_calls += 1
+        self.context = context
+        return (220, b"ready")
+
+    def login(self, username: str, password: str):
+        self.login_calls.append((username, password))
+        return (235, b"authenticated")
+
+    def send_message(self, message: EmailMessage, from_addr: str | None = None, to_addrs: list[str] | None = None):
+        self.send_calls.append((message, from_addr, to_addrs))
+        return {}
+
+
+class FakeHttpResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class MailAtlasTests(unittest.TestCase):
@@ -539,6 +601,382 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(broken_state.status, "error")
             self.assertEqual(broken_state.last_uid, 0)
 
+    def test_draft_email_stores_outbound_record_and_omits_bcc_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            attachment_path = root / "report.txt"
+            attachment_path.write_text("attached report", encoding="utf-8")
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            result = atlas.draft_email(
+                OutboundMessage(
+                    from_email="sender@example.com",
+                    from_name="Sender Example",
+                    to=("recipient@example.com",),
+                    cc=("copy@example.com",),
+                    bcc=("audit@example.com",),
+                    reply_to=("reply@example.com",),
+                    subject="Quarterly report",
+                    text="Plain report body",
+                    html="<p>Plain report body</p>",
+                    headers={"X-Campaign-ID": "quarterly"},
+                    attachments=(OutboundAttachment(path=attachment_path),),
+                    source_document_id="doc-123",
+                )
+            )
+
+            record = atlas.get_outbound(result.id)
+            raw_bytes = (atlas.workspace_path / record.raw_path).read_bytes()
+
+            self.assertEqual(result.status, "draft")
+            self.assertEqual(record.provider, "local")
+            self.assertEqual(record.bcc, ("audit@example.com",))
+            self.assertEqual(len(record.attachments), 1)
+            self.assertTrue((atlas.workspace_path / record.text_path).exists())
+            self.assertTrue((atlas.workspace_path / record.html_path).exists())
+            self.assertTrue((atlas.workspace_path / record.attachments[0].file_path).exists())
+            self.assertNotIn(b"\nBcc:", raw_bytes)
+            self.assertIn(b"X-Campaign-ID: quarterly", raw_bytes)
+            self.assertEqual(atlas.list_outbound()[0].id, result.id)
+
+    def test_outbound_validation_rejects_header_injection_and_missing_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with self.assertRaises(ValueError):
+                atlas.draft_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("recipient@example.com",),
+                        subject="Hello",
+                        text="Body",
+                        headers={"X-Test": "safe\nInjected: bad"},
+                    )
+                )
+
+            with self.assertRaises(ValueError):
+                atlas.draft_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("recipient@example.com",),
+                        subject="Hello",
+                        text="Body",
+                        attachments=(OutboundAttachment(path=root / "missing.pdf"),),
+                    )
+                )
+
+            with self.assertRaises(ValueError):
+                atlas.draft_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("not-an-address",),
+                        subject="Hello",
+                        text="Body",
+                    )
+                )
+
+            with self.assertRaises(ValueError):
+                atlas.draft_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("recipient@example.com",),
+                        subject="Hello",
+                    )
+                )
+
+    def test_send_email_reuses_existing_idempotency_key_without_resending(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            message = OutboundMessage(
+                from_email="sender@example.com",
+                to=("recipient@example.com",),
+                subject="Idempotent",
+                text="Body",
+                idempotency_key="retry-123",
+            )
+
+            first = atlas.send_email(message, SendConfig(provider="smtp", dry_run=True))
+            with mock.patch("mailatlas.adapters.smtp.smtplib.SMTP") as smtp_mock:
+                second = atlas.send_email(
+                    message,
+                    SendConfig(provider="smtp", smtp_host="smtp.example.com", smtp_username="user", smtp_password="secret"),
+                )
+
+            self.assertEqual(first.id, second.id)
+            self.assertEqual(second.status, "dry_run")
+            smtp_mock.assert_not_called()
+            self.assertEqual(len(atlas.list_outbound()), 1)
+
+    def test_send_email_smtp_uses_starttls_auth_and_bcc_envelope(self) -> None:
+        FakeSmtpServer.instances.clear()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.smtp.smtplib.SMTP", FakeSmtpServer):
+                result = atlas.send_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("recipient@example.com",),
+                        cc=("copy@example.com",),
+                        bcc=("hidden@example.com",),
+                        subject="SMTP send",
+                        text="Body",
+                    ),
+                    SendConfig(
+                        provider="smtp",
+                        smtp_host="smtp.example.com",
+                        smtp_port=2525,
+                        smtp_username="smtp-user",
+                        smtp_password="smtp-secret",
+                    ),
+                )
+
+            server = FakeSmtpServer.instances[0]
+            sent_message, from_addr, to_addrs = server.send_calls[0]
+            record = atlas.get_outbound(result.id)
+
+            self.assertEqual(result.status, "sent")
+            self.assertEqual(server.host, "smtp.example.com")
+            self.assertEqual(server.port, 2525)
+            self.assertEqual(server.starttls_calls, 1)
+            self.assertEqual(server.login_calls, [("smtp-user", "smtp-secret")])
+            self.assertEqual(from_addr, "sender@example.com")
+            self.assertEqual(to_addrs, ["recipient@example.com", "copy@example.com", "hidden@example.com"])
+            self.assertNotIn("Bcc", sent_message)
+            self.assertEqual(record.status, "sent")
+            self.assertIsNotNone(record.sent_at)
+
+    def test_send_email_smtp_ssl_allows_anonymous_send(self) -> None:
+        FakeSmtpServer.instances.clear()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.smtp.smtplib.SMTP_SSL", FakeSmtpServer):
+                result = atlas.send_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        to=("recipient@example.com",),
+                        subject="SMTP SSL",
+                        text="Body",
+                    ),
+                    SendConfig(provider="smtp", smtp_host="smtp.example.com", smtp_ssl=True, smtp_starttls=False),
+                )
+
+            server = FakeSmtpServer.instances[0]
+            self.assertEqual(result.status, "sent")
+            self.assertEqual(server.login_calls, [])
+            self.assertEqual(server.starttls_calls, 0)
+
+    def test_send_email_error_persists_failure_without_provider_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            result = atlas.send_email(
+                OutboundMessage(
+                    from_email="sender@example.com",
+                    to=("recipient@example.com",),
+                    subject="Missing host",
+                    text="Body",
+                ),
+                SendConfig(provider="smtp", smtp_username="user", smtp_password="smtp-secret"),
+            )
+
+            record = atlas.get_outbound(result.id)
+            serialized = json.dumps(record.to_dict())
+            self.assertEqual(result.status, "error")
+            self.assertEqual(record.status, "error")
+            self.assertIn("SMTP host is required", record.error)
+            self.assertNotIn("smtp-secret", serialized)
+
+    def test_send_email_cloudflare_posts_current_rest_shape(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return FakeHttpResponse(
+                {
+                    "success": True,
+                    "errors": [],
+                    "messages": [],
+                    "result": {"delivered": ["recipient@example.com"], "permanent_bounces": [], "queued": []},
+                }
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            attachment_path = root / "invoice.txt"
+            attachment_path.write_text("invoice", encoding="utf-8")
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.cloudflare.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = atlas.send_email(
+                    OutboundMessage(
+                        from_email="sender@example.com",
+                        from_name="Sender",
+                        to=("recipient@example.com",),
+                        bcc=("archive@example.com",),
+                        subject="Cloudflare send",
+                        text="Body",
+                        headers={"X-Test": "yes"},
+                        attachments=(OutboundAttachment(path=attachment_path),),
+                    ),
+                    SendConfig(
+                        provider="cloudflare",
+                        cloudflare_account_id="account-123",
+                        cloudflare_api_token="cf-secret-token",
+                    ),
+                )
+
+            record = atlas.get_outbound(result.id)
+            payload = captured["payload"]
+            self.assertEqual(result.status, "sent")
+            self.assertEqual(captured["url"], "https://api.cloudflare.com/client/v4/accounts/account-123/email/sending/send")
+            self.assertEqual(captured["authorization"], "Bearer cf-secret-token")
+            self.assertEqual(payload["from"], {"address": "sender@example.com", "name": "Sender"})
+            self.assertEqual(payload["bcc"], "archive@example.com")
+            self.assertEqual(payload["headers"], {"X-Test": "yes"})
+            self.assertEqual(payload["attachments"][0]["filename"], "invoice.txt")
+            self.assertNotIn("cf-secret-token", json.dumps(record.to_dict()))
+
+    def test_send_email_gmail_posts_base64url_mime_and_metadata(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return FakeHttpResponse(
+                {
+                    "id": "gmail-message-123",
+                    "threadId": "gmail-thread-456",
+                    "labelIds": ["SENT"],
+                }
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = atlas.send_email(
+                    OutboundMessage(
+                        from_email="sender@gmail.com",
+                        to=("recipient@example.com",),
+                        subject="Gmail send",
+                        text="Body",
+                    ),
+                    SendConfig(
+                        provider="gmail",
+                        gmail_access_token="gmail-secret-token",
+                        gmail_api_base="https://gmail.test/gmail/v1",
+                    ),
+                )
+
+            record = atlas.get_outbound(result.id)
+            raw = captured["payload"]["raw"]
+            decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+
+            self.assertEqual(result.status, "sent")
+            self.assertEqual(result.provider_message_id, "gmail-message-123")
+            self.assertEqual(captured["url"], "https://gmail.test/gmail/v1/users/me/messages/send")
+            self.assertEqual(captured["authorization"], "Bearer gmail-secret-token")
+            self.assertIn(b"Subject: Gmail send", decoded)
+            self.assertIn(b"To: recipient@example.com", decoded)
+            self.assertNotIn(b"\nBcc:", decoded)
+            self.assertEqual(record.metadata["gmail_thread_id"], "gmail-thread-456")
+            self.assertEqual(record.metadata["gmail_label_ids"], ["SENT"])
+            self.assertNotIn("gmail-secret-token", json.dumps(record.to_dict()))
+
+    def test_send_email_gmail_missing_token_returns_error_without_persisting_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            result = atlas.send_email(
+                OutboundMessage(
+                    from_email="sender@gmail.com",
+                    to=("recipient@example.com",),
+                    subject="Gmail missing token",
+                    text="Body",
+                ),
+                SendConfig(provider="gmail"),
+            )
+
+            record = atlas.get_outbound(result.id)
+            self.assertEqual(result.status, "error")
+            self.assertIn("Gmail access token is required", result.error)
+            self.assertNotIn("access_token", json.dumps(record.to_dict()))
+
+    def test_send_email_gmail_rejects_bcc_until_provider_only_mime_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen") as urlopen_mock:
+                result = atlas.send_email(
+                    OutboundMessage(
+                        from_email="sender@gmail.com",
+                        to=("recipient@example.com",),
+                        bcc=("hidden@example.com",),
+                        subject="Gmail bcc",
+                        text="Body",
+                    ),
+                    SendConfig(provider="gmail", gmail_access_token="gmail-secret-token"),
+                )
+
+            record = atlas.get_outbound(result.id)
+            raw = (atlas.workspace_path / record.raw_path).read_bytes()
+
+            self.assertEqual(result.status, "error")
+            self.assertIn("BCC are not supported yet", result.error)
+            self.assertEqual(record.bcc, ("hidden@example.com",))
+            self.assertNotIn(b"\nBcc:", raw)
+            urlopen_mock.assert_not_called()
+
+    def test_gmail_oauth_code_exchange_does_not_persist_token_values_in_status(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["form"] = dict(urllib.parse.parse_qsl(request.data.decode("utf-8")))
+            return FakeHttpResponse(
+                {
+                    "access_token": "access-secret",
+                    "refresh_token": "refresh-secret",
+                    "expires_in": 3600,
+                    "scope": "https://www.googleapis.com/auth/gmail.send",
+                    "token_type": "Bearer",
+                }
+            )
+
+        with mock.patch("mailatlas.core.gmail_auth.urllib.request.urlopen", side_effect=fake_urlopen):
+            token = exchange_gmail_authorization_code(
+                GmailAuthConfig(
+                    client_id="client-123",
+                    client_secret="client-secret",
+                    email="sender@gmail.com",
+                    token_url="https://oauth.test/token",
+                ),
+                code="auth-code",
+                redirect_uri="http://127.0.0.1:12345",
+                code_verifier="verifier",
+            )
+
+        self.assertEqual(captured["url"], "https://oauth.test/token")
+        self.assertEqual(captured["form"]["client_id"], "client-123")
+        self.assertEqual(captured["form"]["client_secret"], "client-secret")
+        self.assertEqual(captured["form"]["code_verifier"], "verifier")
+        self.assertEqual(token["access_token"], "access-secret")
+        self.assertEqual(token["refresh_token"], "refresh-secret")
+        self.assertEqual(token["email"], "sender@gmail.com")
+
     def test_cli_sync_uses_env_defaults_and_cli_precedence(self) -> None:
         result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
 
@@ -631,6 +1069,260 @@ class MailAtlasTests(unittest.TestCase):
                     )
 
         self.assertEqual(exit_code, 1)
+
+    def test_cli_send_dry_run_writes_outbound_record_and_returns_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            storage_root = root / "mailatlas-root"
+            body_path = root / "body.txt"
+            body_path.write_text("CLI body", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "send",
+                            "--root",
+                            storage_root.as_posix(),
+                            "--dry-run",
+                            "--from",
+                            "sender@example.com",
+                            "--to",
+                            "recipient@example.com",
+                            "--bcc",
+                            "hidden@example.com",
+                            "--subject",
+                            "CLI dry run",
+                            "--text-file",
+                            body_path.as_posix(),
+                        ]
+                    )
+
+            payload = json.loads(stdout.getvalue())
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            record = atlas.get_outbound(payload["id"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "dry_run")
+            self.assertEqual(payload["provider"], "smtp")
+            self.assertEqual(record.bcc, ("hidden@example.com",))
+            self.assertIn("CLI body", (atlas.workspace_path / record.raw_path).read_text(encoding="utf-8"))
+            self.assertNotIn("\nBcc:", (atlas.workspace_path / record.raw_path).read_text(encoding="utf-8"))
+
+    def test_cli_send_env_defaults_and_cli_precedence(self) -> None:
+        result = SendResult(id="outbound-123", status="dry_run", provider="smtp")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch.object(mailatlas_cli.MailAtlas, "send_email", return_value=result) as send_mock:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "MAILATLAS_SEND_PROVIDER": "cloudflare",
+                        "MAILATLAS_SMTP_HOST": "env-smtp.example.com",
+                        "MAILATLAS_SMTP_PORT": "1025",
+                        "MAILATLAS_SMTP_USERNAME": "env-user",
+                        "MAILATLAS_SMTP_PASSWORD": "env-secret",
+                        "MAILATLAS_SMTP_STARTTLS": "false",
+                        "MAILATLAS_SMTP_SSL": "true",
+                    },
+                    clear=False,
+                ):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        exit_code = mailatlas_cli.main(
+                            [
+                                "send",
+                                "--root",
+                                root.as_posix(),
+                                "--provider",
+                                "smtp",
+                                "--smtp-host",
+                                "cli-smtp.example.com",
+                                "--smtp-port",
+                                "2525",
+                                "--no-smtp-ssl",
+                                "--smtp-starttls",
+                                "--dry-run",
+                                "--from",
+                                "sender@example.com",
+                                "--to",
+                                "recipient@example.com",
+                                "--subject",
+                                "Config precedence",
+                                "--text",
+                                "Body",
+                            ]
+                        )
+
+        message_arg, config_arg = send_mock.call_args.args
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(message_arg.subject, "Config precedence")
+        self.assertEqual(config_arg.provider, "smtp")
+        self.assertEqual(config_arg.smtp_host, "cli-smtp.example.com")
+        self.assertEqual(config_arg.smtp_port, 2525)
+        self.assertEqual(config_arg.smtp_username, "env-user")
+        self.assertEqual(config_arg.smtp_password, "env-secret")
+        self.assertTrue(config_arg.smtp_starttls)
+        self.assertFalse(config_arg.smtp_ssl)
+
+    def test_cli_send_missing_provider_config_returns_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "send",
+                            "--root",
+                            storage_root.as_posix(),
+                            "--from",
+                            "sender@example.com",
+                            "--to",
+                            "recipient@example.com",
+                            "--subject",
+                            "Missing SMTP",
+                            "--text",
+                            "Body",
+                        ]
+                    )
+
+                payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["status"], "error")
+        self.assertIn("SMTP host is required", payload["error"])
+
+    def test_cli_send_gmail_uses_stored_token_when_env_token_is_absent(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["authorization"] = request.get_header("Authorization")
+            return FakeHttpResponse({"id": "gmail-cli-message", "threadId": "gmail-cli-thread"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            storage_root = root / "mailatlas-root"
+            token_path = root / "gmail-token.json"
+            FileTokenStore(token_path).save(
+                {
+                    "access_token": "stored-gmail-token",
+                    "refresh_token": "refresh-token",
+                    "client_id": "client-123",
+                    "expires_at": time.time() + 3600,
+                    "scope": "https://www.googleapis.com/auth/gmail.send",
+                    "email": "sender@gmail.com",
+                }
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        exit_code = mailatlas_cli.main(
+                            [
+                                "send",
+                                "--root",
+                                storage_root.as_posix(),
+                                "--provider",
+                                "gmail",
+                                "--gmail-token-file",
+                                token_path.as_posix(),
+                                "--from",
+                                "sender@gmail.com",
+                                "--to",
+                                "recipient@example.com",
+                                "--subject",
+                                "Gmail CLI",
+                                "--text",
+                                "Body",
+                            ]
+                        )
+
+            payload = json.loads(stdout.getvalue())
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            record = atlas.get_outbound(payload["id"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "sent")
+            self.assertEqual(payload["provider_message_id"], "gmail-cli-message")
+            self.assertEqual(captured["authorization"], "Bearer stored-gmail-token")
+            self.assertEqual(record.provider, "gmail")
+            self.assertNotIn("stored-gmail-token", json.dumps(record.to_dict()))
+
+    def test_cli_auth_status_and_logout_do_not_print_gmail_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "gmail-token.json"
+            FileTokenStore(token_path).save(
+                {
+                    "access_token": "access-secret",
+                    "refresh_token": "refresh-secret",
+                    "client_id": "client-123",
+                    "expires_at": 1893456000,
+                    "scope": "https://www.googleapis.com/auth/gmail.send",
+                    "email": "sender@gmail.com",
+                }
+            )
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                status_code = mailatlas_cli.main(["auth", "status", "gmail", "--token-file", token_path.as_posix()])
+
+            status_output = stdout.getvalue()
+            status_payload = json.loads(status_output)
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as logout_stdout:
+                logout_code = mailatlas_cli.main(["auth", "logout", "gmail", "--token-file", token_path.as_posix()])
+
+            logout_payload = json.loads(logout_stdout.getvalue())
+
+            self.assertEqual(status_code, 0)
+            self.assertEqual(status_payload["status"], "configured")
+            self.assertEqual(status_payload["email"], "sender@gmail.com")
+            self.assertIn("https://www.googleapis.com/auth/gmail.send", status_payload["scopes"])
+            self.assertNotIn("access-secret", status_output)
+            self.assertNotIn("refresh-secret", status_output)
+            self.assertEqual(logout_code, 0)
+            self.assertEqual(logout_payload["status"], "removed")
+            self.assertFalse(token_path.exists())
+
+    def test_cli_auth_gmail_runs_explicit_flow_without_printing_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "gmail-token.json"
+            fake_result = GmailAuthResult(
+                status="ok",
+                store_path=token_path.as_posix(),
+                email="sender@gmail.com",
+                scopes=("https://www.googleapis.com/auth/gmail.send",),
+                expires_at=1893456000,
+            )
+
+            with mock.patch("mailatlas.cli.run_gmail_auth_flow", return_value=fake_result) as auth_mock:
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        exit_code = mailatlas_cli.main(
+                            [
+                                "auth",
+                                "gmail",
+                                "--client-id",
+                                "client-123",
+                                "--client-secret",
+                                "client-secret",
+                                "--email",
+                                "sender@gmail.com",
+                                "--token-file",
+                                token_path.as_posix(),
+                                "--no-browser",
+                            ]
+                        )
+
+            output = stdout.getvalue()
+            config_arg = auth_mock.call_args.args[0]
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(config_arg.client_id, "client-123")
+            self.assertEqual(config_arg.client_secret, "client-secret")
+            self.assertEqual(config_arg.email, "sender@gmail.com")
+            self.assertFalse(auth_mock.call_args.kwargs["open_browser"])
+            self.assertEqual(json.loads(output)["status"], "ok")
+            self.assertNotIn("client-secret", output)
 
     def test_cli_ingest_auto_detects_inputs_and_reports_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

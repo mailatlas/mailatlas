@@ -1,12 +1,13 @@
 ---
 title: CLI Overview
-description: Use the MailAtlas CLI to ingest, inspect, export, and sync documents.
+description: Use the MailAtlas CLI to ingest, inspect, export, sync, and send email.
 slug: docs/cli/overview
 ---
 
-The CLI follows a simple workflow: ingest documents, list them, read one document, and export the
-format you need. When you want MailAtlas to pull directly from a mailbox, use `sync` to fetch one
-or more folders into the same local store.
+The CLI follows a simple workflow: ingest documents, list them, read one document, export the format
+you need, and send outbound email through a configured provider when your application needs it. When
+you want MailAtlas to pull directly from a mailbox, use `sync` to fetch one or more folders into the
+same local store.
 
 Across all ingest paths, MailAtlas preserves extracted inline images and regular email attachments
 as file references on the stored document.
@@ -32,6 +33,7 @@ The default root contains:
 - `html/`
 - `assets/`
 - `exports/`
+- `outbound/`
 
 ## Core workflow
 
@@ -87,6 +89,44 @@ mailatlas get <document-id> \
 
 Supported formats are `json`, `markdown`, `html`, and `pdf`.
 
+### Send an outbound message
+
+```bash
+mailatlas send \
+  --from agent@example.com \
+  --to user@example.com \
+  --subject "Build complete" \
+  --text "The build passed."
+```
+
+`send` renders a MIME snapshot, stores a local outbound record, and then contacts the configured
+provider unless you pass `--dry-run`.
+
+Body inputs:
+
+```bash
+mailatlas send --from agent@example.com --to user@example.com --subject "Plain" --text "Plain body"
+mailatlas send --from agent@example.com --to user@example.com --subject "File" --text-file body.txt
+mailatlas send --from agent@example.com --to user@example.com --subject "HTML" --html-file body.html
+```
+
+Attachments and custom headers:
+
+```bash
+mailatlas send \
+  --from agent@example.com \
+  --to user@example.com \
+  --subject "Report" \
+  --text-file report-summary.txt \
+  --attach report.pdf \
+  --header "X-Campaign-ID: weekly"
+```
+
+The command prints JSON with `status`, `id`, `provider`, `provider_message_id`, and `error`.
+Statuses include `dry_run`, `sending`, `sent`, `queued`, and `error`. BCC recipients are included
+in the provider envelope and stored in SQLite for audit, but they are omitted from the raw MIME
+headers.
+
 ### Run the self-check
 
 ```bash
@@ -103,6 +143,8 @@ Chromium is available, it also verifies PDF export. Use `--skip-pdf` to skip the
 - `--query`: optional substring search for `list`
 - `--folder`: repeat for multi-folder IMAP sync; defaults to `INBOX`
 - `--type`: optional override for ingest auto-detection
+- `--dry-run`: render and store an outbound message without contacting a provider
+- `--to`, `--cc`, `--bcc`, `--reply-to`, `--attach`, `--header`: repeatable outbound flags
 
 ## Parser cleaning flags
 
@@ -127,6 +169,7 @@ See [Parser Cleaning](/docs/config/parser-cleaning/) for behavior and tradeoffs.
 - `get --out ...` writes a file and prints the resolved output path for `json`, `html`, and `pdf`.
 - `get --format pdf` writes to `exports/<document-id>.pdf` if you omit `--out`.
 - `get --format markdown` prints markdown to stdout with absolute local asset paths when you omit `--out`.
+- `send` prints a send result as JSON and returns non-zero when the provider result is `error`.
 
 ## IMAP auth
 
@@ -136,6 +179,60 @@ See [Parser Cleaning](/docs/config/parser-cleaning/) for behavior and tradeoffs.
 - Bring your own OAuth token. MailAtlas consumes an existing access token; it does not start a
   browser login flow or manage refresh tokens.
 - MailAtlas stores only IMAP sync cursors in SQLite, not mailbox credentials.
+
+## Outbound provider configuration
+
+Choose a provider with `--provider` or `MAILATLAS_SEND_PROVIDER`. Supported values are `smtp`,
+`cloudflare`, and `gmail`.
+
+SMTP configuration:
+
+- `MAILATLAS_SMTP_HOST`
+- `MAILATLAS_SMTP_PORT`
+- `MAILATLAS_SMTP_USERNAME`
+- `MAILATLAS_SMTP_PASSWORD`
+- `MAILATLAS_SMTP_STARTTLS`
+- `MAILATLAS_SMTP_SSL`
+
+Cloudflare Email Service configuration:
+
+- `MAILATLAS_CLOUDFLARE_ACCOUNT_ID`
+- `MAILATLAS_CLOUDFLARE_API_TOKEN`
+- `MAILATLAS_CLOUDFLARE_API_BASE`
+
+Gmail API configuration:
+
+- `MAILATLAS_GMAIL_ACCESS_TOKEN`
+- `MAILATLAS_GMAIL_API_BASE`
+- `MAILATLAS_GMAIL_USER_ID`
+- `MAILATLAS_GMAIL_TOKEN_FILE`
+- `MAILATLAS_GMAIL_CLIENT_ID`
+- `MAILATLAS_GMAIL_CLIENT_SECRET`
+
+For personal Gmail addresses, use the Gmail API provider with OAuth:
+
+```bash
+mailatlas auth gmail \
+  --client-id "$MAILATLAS_GMAIL_CLIENT_ID" \
+  --client-secret "$MAILATLAS_GMAIL_CLIENT_SECRET" \
+  --email user@gmail.com
+
+mailatlas send \
+  --provider gmail \
+  --from user@gmail.com \
+  --to user@gmail.com \
+  --subject "Gmail API test" \
+  --text "Sent with Gmail API OAuth."
+```
+
+Use `mailatlas auth status gmail` to confirm local auth is configured, and
+`mailatlas auth logout gmail` to remove the stored token. Gmail SMTP app passwords remain available
+through `--provider smtp`, but they are a compatibility path rather than the recommended Gmail
+integration.
+
+Provider secrets and OAuth tokens are consumed at runtime from flags, environment variables, Python
+config, or the Gmail auth token file. They are not written to `store.db`, raw snapshots, logs, or
+JSON send results.
 
 PDF export uses Chrome or Chromium. Set `MAILATLAS_PDF_BROWSER` if MailAtlas cannot find the
 browser executable.

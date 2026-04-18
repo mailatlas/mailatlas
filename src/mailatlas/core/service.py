@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 import mailbox
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+from mailatlas.adapters.cloudflare import send_cloudflare_message
+from mailatlas.adapters.gmail import send_gmail_message
 from mailatlas.adapters.imap import open_imap_session
+from mailatlas.adapters.smtp import send_smtp_message
 
 from .exports import export_document as export_document_content
-from .models import DocumentRef, ImapFolderSyncResult, ImapSyncConfig, ImapSyncResult, NormalizedDocument, ParserConfig
+from .models import (
+    DocumentRef,
+    ImapFolderSyncResult,
+    ImapSyncConfig,
+    ImapSyncResult,
+    NormalizedDocument,
+    OutboundMessage,
+    OutboundMessageRecord,
+    OutboundMessageRef,
+    ParserConfig,
+    SendConfig,
+    SendResult,
+)
+from .outbound import build_outbound_mime, normalize_outbound_message, outbound_metadata, send_result_from_record
 from .parsing import parse_email_bytes, parse_eml as parse_eml_file
 from .storage import DocumentSaveResult, WorkspaceStore
 
@@ -15,6 +32,10 @@ from .storage import DocumentSaveResult, WorkspaceStore
 def _imap_source_path(host: str, port: int, folder: str, uid: int) -> str:
     encoded_folder = quote(folder, safe="")
     return f"imap://{host}:{port}/{encoded_folder}#uid={uid}"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class MailAtlas:
@@ -200,3 +221,87 @@ class MailAtlas:
             workspace_path=self.workspace_path,
             out_path=out_path,
         )
+
+    def _idempotent_outbound_result(self, message: OutboundMessage) -> SendResult | None:
+        idempotency_key = message.idempotency_key.strip() if message.idempotency_key else None
+        existing = self.store.find_outbound_by_idempotency_key(idempotency_key)
+        return send_result_from_record(existing) if existing else None
+
+    def _render_outbound(self, message: OutboundMessage):
+        normalized = normalize_outbound_message(message)
+        mime_message = build_outbound_mime(normalized)
+        raw_bytes = mime_message.as_bytes()
+        metadata = outbound_metadata(normalized, mime_message)
+        return normalized, mime_message, raw_bytes, metadata
+
+    def draft_email(self, message: OutboundMessage) -> SendResult:
+        existing = self._idempotent_outbound_result(message)
+        if existing:
+            return existing
+
+        normalized, _, raw_bytes, metadata = self._render_outbound(message)
+        record = self.store.save_outbound_message(
+            normalized,
+            provider="local",
+            status="draft",
+            raw_bytes=raw_bytes,
+            metadata=metadata,
+        )
+        return send_result_from_record(record)
+
+    def send_email(self, message: OutboundMessage, config: SendConfig) -> SendResult:
+        existing = self._idempotent_outbound_result(message)
+        if existing:
+            return existing
+
+        normalized, mime_message, raw_bytes, metadata = self._render_outbound(message)
+        if config.dry_run:
+            record = self.store.save_outbound_message(
+                normalized,
+                provider=config.provider,
+                status="dry_run",
+                raw_bytes=raw_bytes,
+                metadata=metadata,
+            )
+            return send_result_from_record(record)
+
+        record = self.store.save_outbound_message(
+            normalized,
+            provider=config.provider,
+            status="sending",
+            raw_bytes=raw_bytes,
+            metadata=metadata,
+        )
+
+        if config.provider == "smtp":
+            provider_result = send_smtp_message(normalized, mime_message, config)
+        elif config.provider == "cloudflare":
+            provider_result = send_cloudflare_message(normalized, config)
+        elif config.provider == "gmail":
+            provider_result = send_gmail_message(normalized, mime_message, config)
+        else:
+            provider_result = None
+
+        if provider_result is None:
+            updated = self.store.update_outbound_message(
+                record.id,
+                status="error",
+                error=f"Unsupported send provider: {config.provider}",
+            )
+            return send_result_from_record(updated)
+
+        updated = self.store.update_outbound_message(
+            record.id,
+            status=provider_result.status,
+            provider_message_id=provider_result.provider_message_id,
+            metadata=provider_result.metadata,
+            sent_at=_utc_now() if provider_result.status in {"sent", "queued"} else None,
+            error=provider_result.error,
+        )
+        return send_result_from_record(updated)
+
+    def list_outbound(self, query: str | None = None) -> list[OutboundMessageRef]:
+        return self.store.list_outbound(query=query)
+
+    def get_outbound(self, outbound_id: str) -> OutboundMessageRecord:
+        return self.store.get_outbound(outbound_id)

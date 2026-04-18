@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import mimetypes
 import os
 import re
 import sqlite3
@@ -9,7 +11,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import DocumentRecord, DocumentRef, ImapSyncState, NormalizedDocument, StoredAsset
+from .models import (
+    DocumentRecord,
+    DocumentRef,
+    ImapSyncState,
+    NormalizedDocument,
+    OutboundMessage,
+    OutboundMessageRecord,
+    OutboundMessageRef,
+    StoredAsset,
+    StoredOutboundAttachment,
+)
 
 
 PARSER_VERSION = "v1"
@@ -55,12 +67,21 @@ class WorkspaceStore:
         self.html_dir = self.workspace_path / "html"
         self.assets_dir = self.workspace_path / "assets"
         self.exports_dir = self.workspace_path / "exports"
+        self.outbound_dir = self.workspace_path / "outbound"
+        self.outbound_raw_dir = self.outbound_dir / "raw"
+        self.outbound_text_dir = self.outbound_dir / "text"
+        self.outbound_html_dir = self.outbound_dir / "html"
+        self.outbound_attachments_dir = self.outbound_dir / "attachments"
 
         self.workspace_path.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.exports_dir.mkdir(parents=True, exist_ok=True)
+        self.outbound_raw_dir.mkdir(parents=True, exist_ok=True)
+        self.outbound_text_dir.mkdir(parents=True, exist_ok=True)
+        self.outbound_html_dir.mkdir(parents=True, exist_ok=True)
+        self.outbound_attachments_dir.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -127,6 +148,46 @@ class WorkspaceStore:
                     status TEXT NOT NULL,
                     error TEXT,
                     PRIMARY KEY (host, port, username, folder)
+                );
+
+                CREATE TABLE IF NOT EXISTS outbound_messages (
+                    id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    provider_message_id TEXT,
+                    idempotency_key TEXT,
+                    status TEXT NOT NULL,
+                    from_email TEXT NOT NULL,
+                    from_name TEXT,
+                    to_json TEXT NOT NULL,
+                    cc_json TEXT NOT NULL,
+                    bcc_json TEXT NOT NULL,
+                    reply_to_json TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    text_path TEXT,
+                    html_path TEXT,
+                    raw_path TEXT NOT NULL,
+                    source_document_id TEXT,
+                    metadata_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    error TEXT
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_idempotency_key
+                ON outbound_messages(idempotency_key)
+                WHERE idempotency_key IS NOT NULL;
+
+                CREATE INDEX IF NOT EXISTS idx_outbound_created_at ON outbound_messages(created_at);
+                CREATE INDEX IF NOT EXISTS idx_outbound_subject ON outbound_messages(subject);
+
+                CREATE TABLE IF NOT EXISTS outbound_attachments (
+                    id TEXT PRIMARY KEY,
+                    outbound_id TEXT NOT NULL REFERENCES outbound_messages(id) ON DELETE CASCADE,
+                    ordinal INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    sha256 TEXT NOT NULL
                 );
                 """
             )
@@ -334,6 +395,256 @@ class WorkspaceStore:
             DocumentRef(id=row["id"], subject=row["subject"], source_kind=row["source_kind"], created_at=row["created_at"])
             for row in rows
         ]
+
+    def _outbound_record_from_rows(
+        self,
+        message_row: sqlite3.Row,
+        attachment_rows: list[sqlite3.Row],
+    ) -> OutboundMessageRecord:
+        return OutboundMessageRecord(
+            id=message_row["id"],
+            status=message_row["status"],
+            provider=message_row["provider"],
+            provider_message_id=message_row["provider_message_id"],
+            from_email=message_row["from_email"],
+            from_name=message_row["from_name"],
+            to=tuple(json.loads(message_row["to_json"])),
+            cc=tuple(json.loads(message_row["cc_json"])),
+            bcc=tuple(json.loads(message_row["bcc_json"])),
+            reply_to=tuple(json.loads(message_row["reply_to_json"])),
+            subject=message_row["subject"],
+            text_path=message_row["text_path"],
+            html_path=message_row["html_path"],
+            raw_path=message_row["raw_path"],
+            source_document_id=message_row["source_document_id"],
+            metadata=json.loads(message_row["metadata_json"]),
+            created_at=message_row["created_at"],
+            sent_at=message_row["sent_at"],
+            error=message_row["error"],
+            attachments=tuple(
+                StoredOutboundAttachment(
+                    id=row["id"],
+                    outbound_id=row["outbound_id"],
+                    ordinal=row["ordinal"],
+                    filename=row["filename"],
+                    mime_type=row["mime_type"],
+                    file_path=row["file_path"],
+                    sha256=row["sha256"],
+                )
+                for row in attachment_rows
+            ),
+        )
+
+    def _outbound_ref_from_row(self, row: sqlite3.Row) -> OutboundMessageRef:
+        return OutboundMessageRef(
+            id=row["id"],
+            status=row["status"],
+            provider=row["provider"],
+            from_email=row["from_email"],
+            to=tuple(json.loads(row["to_json"])),
+            subject=row["subject"],
+            created_at=row["created_at"],
+            sent_at=row["sent_at"],
+        )
+
+    def save_outbound_message(
+        self,
+        message: OutboundMessage,
+        *,
+        provider: str,
+        status: str,
+        raw_bytes: bytes,
+        metadata: dict[str, object] | None = None,
+        provider_message_id: str | None = None,
+        sent_at: str | None = None,
+        error: str | None = None,
+    ) -> OutboundMessageRecord:
+        outbound_id = str(uuid.uuid4())
+        created_at = _utc_now()
+
+        raw_relative = Path("outbound") / "raw" / f"{outbound_id}.eml"
+        raw_target = self.workspace_path / raw_relative
+        raw_target.write_bytes(raw_bytes)
+
+        text_relative: str | None = None
+        if message.text is not None:
+            text_relative_path = Path("outbound") / "text" / f"{outbound_id}.txt"
+            (self.workspace_path / text_relative_path).write_text(message.text, encoding="utf-8")
+            text_relative = text_relative_path.as_posix()
+
+        html_relative: str | None = None
+        if message.html is not None:
+            html_relative_path = Path("outbound") / "html" / f"{outbound_id}.html"
+            (self.workspace_path / html_relative_path).write_text(message.html, encoding="utf-8")
+            html_relative = html_relative_path.as_posix()
+
+        attachment_records: list[StoredOutboundAttachment] = []
+        if message.attachments:
+            attachment_root = self.outbound_attachments_dir / outbound_id
+            attachment_root.mkdir(parents=True, exist_ok=True)
+
+        for ordinal, attachment in enumerate(message.attachments, start=1):
+            source_path = Path(attachment.path)
+            filename = _safe_filename(attachment.filename or source_path.name)
+            relative_path = Path("outbound") / "attachments" / outbound_id / f"{ordinal:03d}-{filename}"
+            target_path = self.workspace_path / relative_path
+            content = source_path.read_bytes()
+            target_path.write_bytes(content)
+            attachment_records.append(
+                StoredOutboundAttachment(
+                    id=str(uuid.uuid4()),
+                    outbound_id=outbound_id,
+                    ordinal=ordinal,
+                    filename=filename,
+                    mime_type=attachment.mime_type or mimetypes.guess_type(filename)[0] or "application/octet-stream",
+                    file_path=relative_path.as_posix(),
+                    sha256=hashlib.sha256(content).hexdigest(),
+                )
+            )
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO outbound_messages (
+                    id, provider, provider_message_id, idempotency_key, status, from_email, from_name,
+                    to_json, cc_json, bcc_json, reply_to_json, subject, text_path, html_path, raw_path,
+                    source_document_id, metadata_json, created_at, sent_at, error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    outbound_id,
+                    provider,
+                    provider_message_id,
+                    message.idempotency_key,
+                    status,
+                    message.from_email,
+                    message.from_name,
+                    json.dumps(list(message.to)),
+                    json.dumps(list(message.cc)),
+                    json.dumps(list(message.bcc)),
+                    json.dumps(list(message.reply_to)),
+                    message.subject,
+                    text_relative,
+                    html_relative,
+                    raw_relative.as_posix(),
+                    message.source_document_id,
+                    json.dumps(metadata or {}),
+                    created_at,
+                    sent_at,
+                    error,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO outbound_attachments (id, outbound_id, ordinal, filename, mime_type, file_path, sha256)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        attachment.id,
+                        attachment.outbound_id,
+                        attachment.ordinal,
+                        attachment.filename,
+                        attachment.mime_type,
+                        attachment.file_path,
+                        attachment.sha256,
+                    )
+                    for attachment in attachment_records
+                ],
+            )
+
+        return self.get_outbound(outbound_id)
+
+    def get_outbound(self, outbound_id: str) -> OutboundMessageRecord:
+        with self._connect() as connection:
+            message_row = connection.execute("SELECT * FROM outbound_messages WHERE id = ?", (outbound_id,)).fetchone()
+            if not message_row:
+                raise KeyError(f"Outbound message not found: {outbound_id}")
+            attachment_rows = connection.execute(
+                """
+                SELECT * FROM outbound_attachments
+                WHERE outbound_id = ?
+                ORDER BY ordinal ASC
+                """,
+                (outbound_id,),
+            ).fetchall()
+
+        return self._outbound_record_from_rows(message_row, list(attachment_rows))
+
+    def find_outbound_by_idempotency_key(self, idempotency_key: str | None) -> OutboundMessageRecord | None:
+        if not idempotency_key:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id FROM outbound_messages WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        if not row:
+            return None
+        return self.get_outbound(row["id"])
+
+    def list_outbound(self, query: str | None = None) -> list[OutboundMessageRef]:
+        with self._connect() as connection:
+            if query:
+                pattern = f"%{query}%"
+                rows = connection.execute(
+                    """
+                    SELECT id, status, provider, from_email, to_json, subject, created_at, sent_at
+                    FROM outbound_messages
+                    WHERE subject LIKE ? OR from_email LIKE ? OR to_json LIKE ? OR cc_json LIKE ?
+                    ORDER BY created_at DESC
+                    """,
+                    (pattern, pattern, pattern, pattern),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT id, status, provider, from_email, to_json, subject, created_at, sent_at
+                    FROM outbound_messages
+                    ORDER BY created_at DESC
+                    """
+                ).fetchall()
+
+        return [self._outbound_ref_from_row(row) for row in rows]
+
+    def update_outbound_message(
+        self,
+        outbound_id: str,
+        *,
+        status: str,
+        provider_message_id: str | None = None,
+        metadata: dict[str, object] | None = None,
+        sent_at: str | None = None,
+        error: str | None = None,
+    ) -> OutboundMessageRecord:
+        current = self.get_outbound(outbound_id)
+        merged_metadata = dict(current.metadata)
+        if metadata:
+            merged_metadata.update(metadata)
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE outbound_messages
+                SET status = ?,
+                    provider_message_id = ?,
+                    metadata_json = ?,
+                    sent_at = ?,
+                    error = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    provider_message_id if provider_message_id is not None else current.provider_message_id,
+                    json.dumps(merged_metadata),
+                    sent_at if sent_at is not None else current.sent_at,
+                    error,
+                    outbound_id,
+                ),
+            )
+
+        return self.get_outbound(outbound_id)
 
     def resolve_path(self, relative_path: str | None) -> Path | None:
         if not relative_path:
