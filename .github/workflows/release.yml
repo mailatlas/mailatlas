@@ -31,7 +31,7 @@ jobs:
           GITHUB_OWNER: ${{ github.repository_owner }}
         run: |
           mkdir -p release-assets
-          python scripts/render_homebrew_formula.py \
+          python .github/scripts/render_homebrew_formula.py \
             --owner "$GITHUB_OWNER" \
             --version "${GITHUB_REF_NAME#v}" \
             --sdist dist/mailatlas-${GITHUB_REF_NAME#v}.tar.gz \

@@ -24,20 +24,6 @@ jobs:
           coverage run --source=mailatlas -m unittest discover -s tests -v
           coverage report --fail-under=82
 
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-      - name: Install site dependencies
-        run: make bootstrap-docs
-      - name: Build site
-        run: make docs
-
   package-smoke:
     runs-on: ubuntu-latest
     steps:

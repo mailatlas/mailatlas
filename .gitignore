@@ -13,6 +13,3 @@ __pycache__/
 build/
 dist/
 release-assets/
-site/.astro/
-site/dist/
-site/node_modules/

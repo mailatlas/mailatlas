@@ -26,7 +26,7 @@ def main() -> int:
         python_bin = venv_path / "bin" / "python"
         pip_bin = venv_path / "bin" / "pip"
         cli_bin = venv_path / "bin" / "mailatlas"
-        shutil.copytree(ROOT / "data" / "fixtures", Path(temp_dir) / "fixtures")
+        shutil.copytree(ROOT / "tests" / "fixtures", Path(temp_dir) / "fixtures")
 
         _run(sys.executable, "-m", "venv", venv_path.as_posix())
         _run(pip_bin.as_posix(), "install", wheel.as_posix())

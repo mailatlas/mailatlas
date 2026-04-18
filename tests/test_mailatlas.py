@@ -1733,7 +1733,7 @@ class MailAtlasTests(unittest.TestCase):
             project_root = Path(temp_dir)
             storage_root = project_root / ".mailatlas"
             browser_path = project_root / "fake-browser.sh"
-            fixtures = Path(__file__).resolve().parents[1] / "data" / "fixtures"
+            fixtures = Path(__file__).resolve().parent / "fixtures"
             _write_fake_pdf_browser(browser_path)
 
             fixture_paths = [
@@ -1898,7 +1898,7 @@ class MailAtlasTests(unittest.TestCase):
     def test_public_synthetic_fixtures_support_launch_examples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            fixtures = Path(__file__).resolve().parents[1] / "data" / "fixtures"
+            fixtures = Path(__file__).resolve().parent / "fixtures"
             atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
 
             refs = atlas.ingest_eml(

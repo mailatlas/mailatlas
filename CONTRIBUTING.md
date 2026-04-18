@@ -1,7 +1,7 @@
 # Contributing
 
-The most useful contributions right now are parser quality improvements, fixture coverage,
-packaging hardening, docs clarity, and integration examples that keep the ingestion core easy to
+The most useful contributions in this repository are parser quality improvements, storage and
+export correctness, CLI behavior, packaging hardening, and tests that keep the core package easy to
 reason about.
 
 ## Setup
@@ -14,20 +14,19 @@ make bootstrap-python
 
 The editable install exposes `mailatlas` directly, so development commands should not need `PYTHONPATH=src`.
 
-If you are changing the docs site too:
-
-```bash
-make bootstrap-docs
-```
-
 ## Development Workflow
 
-- Keep fixtures synthetic and safe to publish.
 - Prefer small, reviewable pull requests.
 - Add or update tests when parser behavior changes.
-- Keep the CLI and Python API examples in sync with docs.
+- Keep core README examples in sync with the CLI and Python API.
 - Prefer the root `Makefile` targets over ad hoc one-off commands so local and CI workflows stay aligned.
 - Route usage questions and bug reports through the guidance in [`SUPPORT.md`](./SUPPORT.md).
+
+Docs, examples, and the larger synthetic fixture corpus live in separate repositories:
+
+- docs site: [`mailatlas/mailatlas.dev`](https://github.com/mailatlas/mailatlas.dev)
+- examples: [`mailatlas/examples`](https://github.com/mailatlas/examples)
+- sample data: [`mailatlas/sample-data`](https://github.com/mailatlas/sample-data)
 
 ## Tests
 
@@ -41,29 +40,20 @@ For packaging smoke checks:
 make smoke-release
 ```
 
-If you change README copy or anything under `site/src/content`, rebuild the docs site before
-opening the PR:
-
-```bash
-make docs
-```
-
-For the end-to-end local self-check and demo flows:
+For the end-to-end local self-check:
 
 ```bash
 make doctor
-make demo-cli
-make demo-parser
 ```
 
 ## Pull Requests
 
 - Explain the user-visible behavior change.
 - Note any schema, storage, or fixture changes explicitly.
-- If the change affects docs, update the README or site in the same PR.
+- If the change affects public docs, update the docs site repository in a companion PR.
 
 ## Release Policy
 
 MailAtlas is currently alpha.
 Breaking changes are acceptable when they improve the ingestion core, but they should land with
-tests, docs updates, and a short note in [`CHANGELOG.md`](./CHANGELOG.md).
+tests, README or docs updates, and a short note in [`CHANGELOG.md`](./CHANGELOG.md).

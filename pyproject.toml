@@ -37,17 +37,9 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-api = [
-  "fastapi",
-  "uvicorn",
-  "python-dotenv>=1.0.1",
-]
 dev = [
   "build",
   "coverage",
-  "fastapi",
-  "uvicorn",
-  "python-dotenv>=1.0.1",
 ]
 
 [project.scripts]
@@ -60,6 +52,9 @@ Source = "https://github.com/mailatlas/mailatlas"
 Issues = "https://github.com/mailatlas/mailatlas/issues"
 Changelog = "https://github.com/mailatlas/mailatlas/blob/main/CHANGELOG.md"
 Support = "https://github.com/mailatlas/mailatlas/blob/main/SUPPORT.md"
+Examples = "https://github.com/mailatlas/examples"
+"Sample Data" = "https://github.com/mailatlas/sample-data"
+"Homebrew Tap" = "https://github.com/mailatlas/homebrew-mailatlas"
 "Code of Conduct" = "https://github.com/mailatlas/mailatlas/blob/main/CODE_OF_CONDUCT.md"
 "Security Policy" = "https://github.com/mailatlas/mailatlas/security/policy"
 

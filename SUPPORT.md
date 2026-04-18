@@ -2,7 +2,7 @@
 
 ## Start Here
 
-- Read the [README](./README.md) and the docs in [`site/src/content/docs`](./site/src/content/docs).
+- Read the [README](./README.md) and the public docs at <https://mailatlas.dev/docs>.
 - Check the [changelog](./CHANGELOG.md) before reporting behavior that may have changed recently.
 
 ## Bugs And Feature Requests

@@ -38,8 +38,8 @@ systems. It is not a hosted deliverability service or inbox client.
 ## Project Status
 
 MailAtlas is currently alpha. Expect the CLI, stored schema, and release tooling to keep
-improving, but the repository is set up for public contribution with synthetic fixtures, CI, release
-artifacts, and package smoke checks.
+improving, but the repository is set up for public contribution with CI, release artifacts, package
+smoke checks, and a separate synthetic sample-data corpus.
 
 ## Install
 
@@ -50,12 +50,6 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install mailatlas
 mailatlas doctor
-```
-
-If you want the optional API extra from PyPI:
-
-```bash
-python -m pip install "mailatlas[api]"
 ```
 
 ### `uv`
@@ -82,8 +76,7 @@ brew install mailatlas/mailatlas/mailatlas
 
 ### From source
 
-Use a source checkout when you want to run the shipped fixtures, the demo API, or contribute to
-the project:
+Use a source checkout when you want to work on the core package or contribute to the project:
 
 ```bash
 python3.12 -m venv .venv
@@ -92,13 +85,7 @@ make bootstrap-python
 mailatlas doctor
 ```
 
-If you are changing the docs site too:
-
-```bash
-make bootstrap-docs
-```
-
-Run `make help` to see the full local command surface.
+Run `make help` to see the local package command surface.
 
 ## Verify The Install
 
@@ -131,9 +118,11 @@ You can also override the root per command with `--root`.
 
 ## Next Steps
 
-- Use [Quickstart walkthrough](./site/src/content/docs/getting-started/quickstart.md) for the file-based path with the shipped fixtures.
-- Use [Manual IMAP sync](./site/src/content/docs/getting-started/manual-imap-sync.md) when MailAtlas should connect to a live mailbox.
-- Use [CLI overview](./site/src/content/docs/cli/overview.md) for the full command surface.
+- Use the [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/) for the file-based path.
+- Use [Manual IMAP sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/) when MailAtlas should connect to a live mailbox.
+- Use the [CLI overview](https://mailatlas.dev/docs/cli/overview/) for the full command surface.
+- Use [mailatlas/sample-data](https://github.com/mailatlas/sample-data) for synthetic `.eml` and `.mbox` fixtures.
+- Use [mailatlas/examples](https://github.com/mailatlas/examples) for runnable demos and integration examples.
 
 ## Core Use Cases
 
@@ -148,7 +137,8 @@ You can also override the root per command with `--root`.
 Auto-detect and ingest an `mbox` archive:
 
 ```bash
-mailatlas ingest data/fixtures/atlas-demo.mbox
+git clone https://github.com/mailatlas/sample-data
+mailatlas ingest sample-data/fixtures/mbox/atlas-demo.mbox
 ```
 
 Manual IMAP sync is incremental by folder and stores only non-secret cursor state:
@@ -169,7 +159,7 @@ as your OAuth client.
 Parser cleanup is configurable:
 
 ```bash
-mailatlas ingest data/fixtures/atlas-founder-forward.eml \
+mailatlas ingest sample-data/fixtures/eml/atlas-founder-forward.eml \
   --no-strip-forwarded-headers \
   --no-strip-boilerplate
 ```
@@ -242,11 +232,14 @@ atlas = MailAtlas(
 )
 
 parsed = atlas.parse_eml(
-    "data/fixtures/atlas-founder-forward.eml",
+    "sample-data/fixtures/eml/atlas-founder-forward.eml",
 )
 
 refs = atlas.ingest_eml(
-    ["data/fixtures/atlas-market-map.eml", "data/fixtures/atlas-inline-chart.eml"],
+    [
+        "sample-data/fixtures/eml/atlas-market-map.eml",
+        "sample-data/fixtures/eml/atlas-inline-chart.eml",
+    ],
 )
 
 sync_result = atlas.sync_imap(
@@ -314,18 +307,17 @@ Outbound provider secrets are read from CLI flags, environment variables, or exp
 
 ## Docs And Examples
 
-- [Installation guide](./site/src/content/docs/getting-started/installation.md)
-- [Quickstart walkthrough](./site/src/content/docs/getting-started/quickstart.md)
-- [Manual IMAP sync](./site/src/content/docs/getting-started/manual-imap-sync.md)
-- [CLI overview](./site/src/content/docs/cli/overview.md)
-- [Workspace model](./site/src/content/docs/concepts/workspace-model.md)
-- [Document schema](./site/src/content/docs/concepts/document-schema.md)
-- [Parser cleaning config](./site/src/content/docs/config/parser-cleaning.md)
-- [Why not connectors?](./site/src/content/docs/marketing/why-not-connectors.md)
+- [Documentation](https://mailatlas.dev/docs)
+- [Installation guide](https://mailatlas.dev/docs/getting-started/installation/)
+- [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/)
+- [Manual IMAP sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/)
+- [CLI overview](https://mailatlas.dev/docs/cli/overview/)
+- [Examples repository](https://github.com/mailatlas/examples)
+- [Sample data repository](https://github.com/mailatlas/sample-data)
 - [Support](./SUPPORT.md)
 - [Security policy](./SECURITY.md)
 - [Changelog](./CHANGELOG.md)
-- [Releasing](./RELEASING.md)
+- [Releasing](./docs/maintainers/releasing.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Contributing](./CONTRIBUTING.md)
 
@@ -333,9 +325,6 @@ Outbound provider secrets are read from CLI flags, environment variables, or exp
 
 ```bash
 make test
-make docs
 make smoke-release
-make demo-cli
-make demo-parser
 make doctor
 ```

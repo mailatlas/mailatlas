@@ -21,9 +21,8 @@ is required once Trusted Publishing is configured.
 
 ### Homebrew
 
-1. Create a tap repository named `homebrew-mailatlas` under the GitHub user or organization that
-   should own the formula.
-2. Add a `Formula/` directory in that tap repo.
+1. Confirm the tap repository exists at `mailatlas/homebrew-mailatlas`.
+2. Confirm the tap repo has a `Formula/` directory.
 3. In this repo, add a repository variable named `HOMEBREW_TAP_REPOSITORY` with the value
    `mailatlas/homebrew-mailatlas`.
 4. In this repo, add a repository secret named `HOMEBREW_TAP_TOKEN` that can push to the tap repo.
@@ -34,7 +33,7 @@ When those are present, the release workflow will render `release-assets/mailatl
 
 ## Per Release
 
-1. Update [`CHANGELOG.md`](./CHANGELOG.md).
+1. Update [`CHANGELOG.md`](../../CHANGELOG.md).
 2. Confirm CI is green on `main`.
 3. Run the local release smoke checks:
 

@@ -7,6 +7,18 @@ semantic, but the project is still in alpha and may ship breaking changes betwee
 
 ## [Unreleased]
 
+### Changed
+
+- Split repository responsibilities across dedicated MailAtlas org repos for the docs site,
+  examples, sample data, Homebrew tap, and private RFC planning.
+- Kept this repository focused on the core Python package, CLI, tests, CI, release workflow, and
+  public governance docs.
+
+### Removed
+
+- Removed the docs site, example app and demo scripts, rich sample-data corpus, Homebrew formula
+  source, private specs, and obsolete setup files from the core package repository.
+
 ## [0.2.0]
 
 ### Added

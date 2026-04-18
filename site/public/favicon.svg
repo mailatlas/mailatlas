@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="MailAtlas logo">
-  <rect width="128" height="128" rx="28" fill="#102034"/>
-  <path d="M22 82C38 60 57 46 86 36" fill="none" stroke="#8fb8d3" stroke-width="8" stroke-linecap="round"/>
-  <path d="M38 92C58 67 77 53 104 45" fill="none" stroke="#d7b08b" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="40" cy="92" r="7" fill="#f4eddd"/>
-  <circle cx="104" cy="45" r="7" fill="#f4eddd"/>
-</svg>
