@@ -9,6 +9,7 @@ from email.message import EmailMessage
 from typing import Any
 
 from mailatlas.core.models import OutboundMessage, SendConfig
+from mailatlas.core.outbound import build_outbound_mime
 
 from .outbound import ProviderSendResult
 
@@ -49,17 +50,13 @@ def send_gmail_message(
             status="error",
             error="Gmail access token is required. Run 'mailatlas auth gmail' or set MAILATLAS_GMAIL_ACCESS_TOKEN.",
         )
-    if message.bcc:
-        return ProviderSendResult(
-            status="error",
-            error="Gmail API sends with BCC are not supported yet because MailAtlas keeps local raw snapshots Bcc-free.",
-        )
+    provider_mime_message = build_outbound_mime(message, include_bcc=True) if message.bcc else mime_message
 
     api_base = config.gmail_api_base or "https://gmail.googleapis.com/gmail/v1"
     user_id = urllib.parse.quote(config.gmail_user_id or "me", safe="")
     endpoint = f"{api_base}/users/{user_id}/messages/send"
     payload = {
-        "raw": base64.urlsafe_b64encode(mime_message.as_bytes()).decode("ascii"),
+        "raw": base64.urlsafe_b64encode(provider_mime_message.as_bytes()).decode("ascii"),
     }
     request = urllib.request.Request(
         endpoint,

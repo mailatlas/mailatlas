@@ -7,6 +7,8 @@ MailAtlas has three local email I/O paths:
 - ingest email files already on disk with `ingest`
 - connect to a live mailbox with `sync` and fetch selected folders manually
 - compose and send outbound email through providers you configure at runtime with `send`
+- expose local documents, outbound audit records, drafts, and gated sends through an optional MCP
+  server
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
 
@@ -86,6 +88,28 @@ mailatlas doctor
 ```
 
 Run `make help` to see the local package command surface.
+
+### MCP server
+
+Install the optional MCP extra when you want an MCP-compatible client to inspect MailAtlas data or
+draft email:
+
+```bash
+python -m pip install "mailatlas[mcp]"
+mailatlas mcp --root .mailatlas
+```
+
+The MCP server exposes read tools for stored documents and outbound audit records, plus
+`mailatlas_draft_email`. The live `mailatlas_send_email` tool is hidden unless you explicitly opt
+in:
+
+```bash
+export MAILATLAS_MCP_ALLOW_SEND=1
+mailatlas mcp --root .mailatlas
+```
+
+Use the same provider environment variables as `mailatlas send` for SMTP, Cloudflare, or Gmail.
+Provider secrets are consumed at runtime and are not written to the local store.
 
 ## Verify The Install
 

@@ -24,11 +24,13 @@ from mailatlas.core import (
     ImapSyncConfig,
     ImapSyncResult,
     MailAtlas,
+    MailAtlasMcpTools,
     OutboundAttachment,
     OutboundMessage,
     ParserConfig,
     SendConfig,
     SendResult,
+    mcp_tool_names,
     parse_eml,
 )
 from mailatlas.core import pdf as pdf_module
@@ -914,12 +916,18 @@ class MailAtlasTests(unittest.TestCase):
             self.assertIn("Gmail access token is required", result.error)
             self.assertNotIn("access_token", json.dumps(record.to_dict()))
 
-    def test_send_email_gmail_rejects_bcc_until_provider_only_mime_exists(self) -> None:
+    def test_send_email_gmail_bcc_uses_provider_only_mime(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return FakeHttpResponse({"id": "gmail-bcc-message", "threadId": "gmail-bcc-thread"})
+
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
 
-            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen") as urlopen_mock:
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
                 result = atlas.send_email(
                     OutboundMessage(
                         from_email="sender@gmail.com",
@@ -933,12 +941,15 @@ class MailAtlasTests(unittest.TestCase):
 
             record = atlas.get_outbound(result.id)
             raw = (atlas.workspace_path / record.raw_path).read_bytes()
+            gmail_raw = captured["payload"]["raw"]
+            gmail_decoded = base64.urlsafe_b64decode(gmail_raw + "=" * (-len(gmail_raw) % 4))
 
-            self.assertEqual(result.status, "error")
-            self.assertIn("BCC are not supported yet", result.error)
+            self.assertEqual(result.status, "sent")
+            self.assertEqual(result.provider_message_id, "gmail-bcc-message")
             self.assertEqual(record.bcc, ("hidden@example.com",))
             self.assertNotIn(b"\nBcc:", raw)
-            urlopen_mock.assert_not_called()
+            self.assertIn(b"\nBcc: hidden@example.com", gmail_decoded)
+            self.assertIn("gmail-bcc-thread", json.dumps(record.metadata))
 
     def test_gmail_oauth_code_exchange_does_not_persist_token_values_in_status(self) -> None:
         captured: dict[str, object] = {}
@@ -1191,6 +1202,95 @@ class MailAtlasTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["status"], "error")
         self.assertIn("SMTP host is required", payload["error"])
+
+    def test_mcp_tool_names_hide_send_until_enabled(self) -> None:
+        self.assertIn("mailatlas_draft_email", mcp_tool_names(allow_send=False))
+        self.assertNotIn("mailatlas_send_email", mcp_tool_names(allow_send=False))
+        self.assertIn("mailatlas_send_email", mcp_tool_names(allow_send=True))
+
+    def test_mcp_draft_email_returns_audit_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_send=False)
+
+            payload = tools.draft_email(
+                from_email="sender@example.com",
+                to=["recipient@example.com"],
+                bcc=["hidden@example.com"],
+                subject="MCP draft",
+                text="Draft body",
+            )
+            outbound = tools.list_outbound()["outbound"]
+            record = tools.get_outbound(payload["id"])
+
+            self.assertEqual(payload["status"], "draft")
+            self.assertEqual(payload["provider"], "local")
+            self.assertEqual(payload["to"], ["recipient@example.com"])
+            self.assertEqual(payload["subject"], "MCP draft")
+            self.assertEqual(outbound[0]["id"], payload["id"])
+            self.assertEqual(record["bcc"], [])
+            self.assertEqual(tools.get_outbound(payload["id"], include_bcc=True)["bcc"], ["hidden@example.com"])
+
+    def test_mcp_send_email_is_disabled_by_default_without_storing_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_send=False)
+
+            payload = tools.send_email(
+                provider="smtp",
+                smtp_host="smtp.example.com",
+                from_email="sender@example.com",
+                to=["recipient@example.com"],
+                subject="MCP disabled",
+                text="Body",
+            )
+
+            self.assertEqual(payload["status"], "disabled")
+            self.assertIn("MAILATLAS_MCP_ALLOW_SEND=1", payload["error"])
+            self.assertEqual(tools.list_outbound()["outbound"], [])
+
+    def test_mcp_send_email_when_enabled_can_dry_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_send=True)
+
+            payload = tools.send_email(
+                provider="smtp",
+                dry_run=True,
+                from_email="sender@example.com",
+                to=["recipient@example.com"],
+                subject="MCP dry run",
+                text="Body",
+            )
+
+            self.assertEqual(payload["status"], "dry_run")
+            self.assertEqual(payload["provider"], "smtp")
+            self.assertEqual(payload["to"], ["recipient@example.com"])
+            self.assertEqual(tools.get_outbound(payload["id"])["subject"], "MCP dry run")
+
+    def test_cli_mcp_delegates_to_mcp_server(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch("mailatlas.mcp_server.run_mcp_server", return_value=0) as run_mock:
+                exit_code = mailatlas_cli.main(
+                    [
+                        "mcp",
+                        "--root",
+                        root.as_posix(),
+                        "--transport",
+                        "stdio",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(run_mock.call_args.kwargs["root"], root.resolve())
+            self.assertEqual(run_mock.call_args.kwargs["transport"], "stdio")
+
+    def test_cli_mcp_defaults_to_stdio_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch("mailatlas.mcp_server.run_mcp_server", return_value=0) as run_mock:
+                exit_code = mailatlas_cli.main(["mcp", "--root", root.as_posix()])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(run_mock.call_args.kwargs["transport"], "stdio")
 
     def test_cli_send_gmail_uses_stored_token_when_env_token_is_absent(self) -> None:
         captured: dict[str, object] = {}

@@ -534,6 +534,13 @@ def _build_parser() -> argparse.ArgumentParser:
     auth_logout_parser.add_argument("provider", choices=["gmail"], help="Provider to remove.")
     auth_logout_parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
 
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Run the MailAtlas MCP server.",
+        parents=[root_parent],
+    )
+    mcp_parser.add_argument("--transport", choices=["stdio"], default="stdio", help="MCP transport. Defaults to stdio.")
+
     doctor_parser = subparsers.add_parser("doctor", help="Run a local self-check.", parents=[root_parent])
     doctor_parser.add_argument(
         "--skip-pdf",
@@ -651,6 +658,15 @@ def main(argv: list[str] | None = None) -> int:
 
         print(json.dumps(result.to_dict(), indent=2))
         return 1 if result.status == "error" else 0
+
+    if args.command == "mcp":
+        try:
+            from mailatlas.mcp_server import run_mcp_server
+
+            return run_mcp_server(root=_resolve_root(args.root), transport=args.transport)
+        except RuntimeError as error:
+            print(str(error), file=sys.stderr)
+            return 1
 
     parser.error("Unsupported command")
     return 1

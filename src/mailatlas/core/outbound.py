@@ -138,7 +138,7 @@ def normalize_outbound_message(message: OutboundMessage) -> OutboundMessage:
     )
 
 
-def build_outbound_mime(message: OutboundMessage) -> EmailMessage:
+def build_outbound_mime(message: OutboundMessage, *, include_bcc: bool = False) -> EmailMessage:
     normalized = normalize_outbound_message(message)
     mime_message = EmailMessage()
     mime_message["From"] = (
@@ -147,6 +147,8 @@ def build_outbound_mime(message: OutboundMessage) -> EmailMessage:
     mime_message["To"] = ", ".join(normalized.to)
     if normalized.cc:
         mime_message["Cc"] = ", ".join(normalized.cc)
+    if include_bcc and normalized.bcc:
+        mime_message["Bcc"] = ", ".join(normalized.bcc)
     if normalized.reply_to:
         mime_message["Reply-To"] = ", ".join(normalized.reply_to)
     mime_message["Subject"] = normalized.subject

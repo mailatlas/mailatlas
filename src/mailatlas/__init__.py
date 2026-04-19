@@ -5,6 +5,7 @@ from mailatlas.core import (
     ImapSyncConfig,
     ImapSyncResult,
     MailAtlas,
+    MailAtlasMcpTools,
     OutboundAttachment,
     OutboundMessage,
     OutboundMessageRecord,
@@ -14,6 +15,8 @@ from mailatlas.core import (
     SendResult,
     gmail_auth_logout,
     gmail_auth_status,
+    mcp_send_enabled,
+    mcp_tool_names,
     parse_eml,
     run_gmail_auth_flow,
 )
@@ -25,6 +28,7 @@ __all__ = [
     "ImapSyncConfig",
     "ImapSyncResult",
     "MailAtlas",
+    "MailAtlasMcpTools",
     "OutboundAttachment",
     "OutboundMessage",
     "OutboundMessageRecord",
@@ -34,6 +38,8 @@ __all__ = [
     "SendResult",
     "gmail_auth_logout",
     "gmail_auth_status",
+    "mcp_send_enabled",
+    "mcp_tool_names",
     "parse_eml",
     "run_gmail_auth_flow",
 ]

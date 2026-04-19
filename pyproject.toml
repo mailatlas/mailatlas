@@ -41,9 +41,13 @@ dev = [
   "build",
   "coverage",
 ]
+mcp = [
+  "mcp>=1,<2",
+]
 
 [project.scripts]
 mailatlas = "mailatlas.cli:main"
+mailatlas-mcp = "mailatlas.mcp_server:main"
 
 [project.urls]
 Homepage = "https://mailatlas.dev"
