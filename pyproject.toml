@@ -45,7 +45,7 @@ mcp = [
   "mcp>=1,<2",
 ]
 keychain = [
-  "keyring>=25",
+  "keyring>=25.7.0",
 ]
 
 [project.scripts]
