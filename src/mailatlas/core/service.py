@@ -16,7 +16,7 @@ from mailatlas.adapters.gmail import (
     list_gmail_message_candidates,
     send_gmail_message,
 )
-from mailatlas.adapters.imap import open_imap_session
+from mailatlas.adapters.imap import ImapSyncError, open_imap_session
 from mailatlas.adapters.smtp import send_smtp_message
 
 from .exports import export_document as export_document_content
@@ -51,6 +51,12 @@ def _imap_source_path(host: str, port: int, folder: str, uid: int) -> str:
 def _receive_account_id(config: ReceiveConfig, email: str | None = None) -> str:
     if config.account_id:
         return config.account_id
+    if config.provider == "imap":
+        identity = config.imap_username or "unknown"
+        host = config.imap_host or "unknown"
+        folders = ",".join(config.imap_folders or ("INBOX",))
+        return f"imap:{identity}:{host}:{folders}"
+
     identity = email or config.gmail_user_id or "me"
     label = config.gmail_label or "ALL"
     account_id = f"{config.provider}:{identity}:{label}"
@@ -58,6 +64,55 @@ def _receive_account_id(config: ReceiveConfig, email: str | None = None) -> str:
         query_hash = hashlib.sha256(config.gmail_query.encode("utf-8")).hexdigest()[:12]
         account_id = f"{account_id}:q-{query_hash}"
     return account_id
+
+
+def _receive_account_email(config: ReceiveConfig, email: str | None = None) -> str | None:
+    if config.provider == "imap":
+        return config.imap_username
+    return email
+
+
+def _receive_account_label(config: ReceiveConfig) -> str | None:
+    if config.provider == "imap":
+        return ",".join(config.imap_folders or ("INBOX",))
+    return config.gmail_label
+
+
+def _receive_account_query(config: ReceiveConfig) -> str | None:
+    if config.provider == "imap":
+        return None
+    return config.gmail_query
+
+
+def _imap_config_from_receive_config(config: ReceiveConfig) -> ImapSyncConfig:
+    return ImapSyncConfig(
+        host=config.imap_host or "",
+        port=config.imap_port,
+        username=config.imap_username or "",
+        auth=config.imap_auth or "password",
+        password=config.imap_password,
+        access_token=config.imap_access_token,
+        folders=config.imap_folders,
+        parser_config=config.parser_config,
+    )
+
+
+def _imap_receive_cursor(sync_result: ImapSyncResult) -> dict[str, object]:
+    return {
+        "host": sync_result.host,
+        "port": sync_result.port,
+        "username": sync_result.username,
+        "folders": [
+            {
+                "folder": folder.folder,
+                "status": folder.status,
+                "uidvalidity": folder.uidvalidity,
+                "last_uid": folder.last_uid,
+                "error": folder.error,
+            }
+            for folder in sync_result.folders
+        ],
+    }
 
 
 def _utc_now() -> str:
@@ -233,9 +288,9 @@ class MailAtlas:
         self.store.save_receive_account(
             account_id=account_id,
             provider=config.provider,
-            email=None,
-            label=config.gmail_label,
-            query=config.gmail_query,
+            email=_receive_account_email(config),
+            label=_receive_account_label(config),
+            query=_receive_account_query(config),
             config=config.to_safe_dict(),
         )
         run = self.store.start_receive_run(account_id, config.provider)
@@ -260,6 +315,117 @@ class MailAtlas:
             cursor={},
             run_id=run.id,
             error=error,
+        )
+
+    def _receive_imap(self, config: ReceiveConfig) -> ReceiveResult:
+        account_id = _receive_account_id(config)
+        self.store.save_receive_account(
+            account_id=account_id,
+            provider=config.provider,
+            email=_receive_account_email(config),
+            label=_receive_account_label(config),
+            query=_receive_account_query(config),
+            config=config.to_safe_dict(),
+        )
+        run = self.store.start_receive_run(account_id, config.provider)
+
+        try:
+            sync_result = self.sync_imap(_imap_config_from_receive_config(config))
+        except ValueError as error:
+            self.store.finish_receive_run(
+                run.id,
+                status="not_configured",
+                fetched_count=0,
+                ingested_count=0,
+                duplicate_count=0,
+                error_count=1,
+                error=str(error),
+            )
+            return ReceiveResult(
+                status="not_configured",
+                provider=config.provider,
+                account_id=account_id,
+                fetched_count=0,
+                ingested_count=0,
+                duplicate_count=0,
+                error_count=1,
+                document_ids=(),
+                cursor={},
+                run_id=run.id,
+                error=str(error),
+            )
+        except ImapSyncError as error:
+            self.store.finish_receive_run(
+                run.id,
+                status="error",
+                fetched_count=0,
+                ingested_count=0,
+                duplicate_count=0,
+                error_count=1,
+                error=str(error),
+            )
+            return ReceiveResult(
+                status="error",
+                provider=config.provider,
+                account_id=account_id,
+                fetched_count=0,
+                ingested_count=0,
+                duplicate_count=0,
+                error_count=1,
+                document_ids=(),
+                cursor={},
+                run_id=run.id,
+                error=str(error),
+            )
+
+        document_ids: list[str] = []
+        for folder in sync_result.folders:
+            for reference in folder.document_refs:
+                document_ids.append(reference.id)
+                self.store.add_receive_run_document(
+                    run.id,
+                    reference.id,
+                    status=folder.status,
+                    provider_message_id=f"{folder.folder}:{reference.id}",
+                    error=folder.error,
+                )
+
+        fetched_count = sum(folder.fetched_count for folder in sync_result.folders)
+        ingested_count = sum(folder.ingested_count for folder in sync_result.folders)
+        duplicate_count = sum(folder.duplicate_count for folder in sync_result.folders)
+        error_count = sum(1 for folder in sync_result.folders if folder.status == "error")
+        last_error = next((folder.error for folder in sync_result.folders if folder.error), None)
+        if error_count:
+            status = "partial" if ingested_count or duplicate_count else "error"
+        elif fetched_count and not ingested_count:
+            status = "duplicate"
+        else:
+            status = "ok"
+
+        cursor = _imap_receive_cursor(sync_result)
+        self.store.save_receive_cursor(account_id, config.provider, cursor)
+        self.store.finish_receive_run(
+            run.id,
+            status=status,
+            fetched_count=fetched_count,
+            ingested_count=ingested_count,
+            duplicate_count=duplicate_count,
+            error_count=error_count,
+            error=last_error,
+        )
+        return ReceiveResult(
+            status=status,
+            provider=config.provider,
+            account_id=account_id,
+            fetched_count=fetched_count,
+            ingested_count=ingested_count,
+            duplicate_count=duplicate_count,
+            error_count=error_count,
+            document_ids=tuple(document_ids),
+            cursor=cursor,
+            run_id=run.id,
+            error=last_error,
+            details=sync_result.to_dict(),
         )
 
     def _receive_provider_error_result(
@@ -296,6 +462,9 @@ class MailAtlas:
         )
 
     def receive(self, config: ReceiveConfig) -> ReceiveResult:
+        if config.provider == "imap":
+            return self._receive_imap(config)
+
         try:
             access_token = config.gmail_access_token or load_valid_gmail_access_token(
                 store=create_gmail_token_store(config.token_file, token_store=config.token_store),
@@ -315,9 +484,9 @@ class MailAtlas:
             self.store.save_receive_account(
                 account_id=account_id,
                 provider=config.provider,
-                email=None,
-                label=config.gmail_label,
-                query=config.gmail_query,
+                email=_receive_account_email(config),
+                label=_receive_account_label(config),
+                query=_receive_account_query(config),
                 config=config.to_safe_dict(),
             )
             run = self.store.start_receive_run(account_id, config.provider)
@@ -333,9 +502,9 @@ class MailAtlas:
         self.store.save_receive_account(
             account_id=account_id,
             provider=config.provider,
-            email=profile_email,
-            label=config.gmail_label,
-            query=config.gmail_query,
+            email=_receive_account_email(config, profile_email),
+            label=_receive_account_label(config),
+            query=_receive_account_query(config),
             config=config.to_safe_dict(),
         )
         run = self.store.start_receive_run(account_id, config.provider)

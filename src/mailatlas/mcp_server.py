@@ -169,8 +169,14 @@ def build_mcp_server(
             gmail_user_id: str | None = None,
             token_file: str | None = None,
             token_store: str | None = None,
+            imap_host: str | None = None,
+            imap_port: int | None = None,
+            imap_username: str | None = None,
+            imap_password: str | None = None,
+            imap_access_token: str | None = None,
+            imap_folders: list[str] | None = None,
         ) -> dict:
-            """Consequential action: contact Gmail and store received private email in the local MailAtlas workspace."""
+            """Consequential action: contact a mailbox provider and store private email in the local MailAtlas workspace."""
             return toolkit.receive(
                 provider=provider,
                 account_id=account_id,
@@ -184,6 +190,12 @@ def build_mcp_server(
                 gmail_user_id=gmail_user_id,
                 token_file=token_file,
                 token_store=token_store,
+                imap_host=imap_host,
+                imap_port=imap_port,
+                imap_username=imap_username,
+                imap_password=imap_password,
+                imap_access_token=imap_access_token,
+                imap_folders=imap_folders,
             )
 
         @mcp.tool()

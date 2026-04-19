@@ -167,6 +167,24 @@ def _add_receive_config_arguments(parser: argparse.ArgumentParser) -> None:
     _add_parser_config_arguments(parser)
 
 
+def _add_imap_config_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--host", default=None, help="IMAP hostname or use MAILATLAS_IMAP_HOST.")
+    parser.add_argument("--port", type=int, default=None, help="IMAP TLS port or use MAILATLAS_IMAP_PORT.")
+    parser.add_argument("--username", default=None, help="IMAP username or use MAILATLAS_IMAP_USERNAME.")
+    parser.add_argument("--password", default=None, help="IMAP password or use MAILATLAS_IMAP_PASSWORD.")
+    parser.add_argument(
+        "--access-token",
+        default=None,
+        help="IMAP OAuth access token or use MAILATLAS_IMAP_ACCESS_TOKEN.",
+    )
+    parser.add_argument(
+        "--folder",
+        action="append",
+        default=None,
+        help="IMAP folder to receive. Repeat for multiple folders. Defaults to INBOX.",
+    )
+
+
 def _parser_config_from_args(args: argparse.Namespace) -> ParserConfig:
     return ParserConfig(
         strip_forwarded_headers=args.strip_forwarded_headers,
@@ -215,6 +233,21 @@ def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
         access_token=access_token,
         folders=folders,
         parser_config=_parser_config_from_args(args),
+    )
+
+
+def _receive_config_from_imap_sync_args(args: argparse.Namespace) -> ReceiveConfig:
+    imap_config = _imap_sync_config_from_args(args)
+    return ReceiveConfig(
+        provider="imap",
+        imap_host=imap_config.host,
+        imap_port=imap_config.port,
+        imap_username=imap_config.username,
+        imap_auth=imap_config.auth,
+        imap_password=imap_config.password,
+        imap_access_token=imap_config.access_token,
+        imap_folders=imap_config.folders,
+        parser_config=imap_config.parser_config,
     )
 
 
@@ -280,6 +313,8 @@ def _int_from_env_or_value(value: int | str | None, env_name: str, default: int)
 def _receive_config_from_args(args: argparse.Namespace) -> ReceiveConfig:
     provider = _env_or_value(args.provider, "MAILATLAS_RECEIVE_PROVIDER", "gmail") or "gmail"
     limit = _int_from_env_or_value(args.limit, "MAILATLAS_GMAIL_RECEIVE_LIMIT", 50)
+    imap_password = _env_or_value(getattr(args, "password", None), "MAILATLAS_IMAP_PASSWORD")
+    imap_access_token = _env_or_value(getattr(args, "access_token", None), "MAILATLAS_IMAP_ACCESS_TOKEN")
     return ReceiveConfig(
         provider=provider,
         account_id=args.account_id,
@@ -293,6 +328,13 @@ def _receive_config_from_args(args: argparse.Namespace) -> ReceiveConfig:
         token_file=_env_or_value(args.token_file, "MAILATLAS_GMAIL_TOKEN_FILE"),
         limit=limit,
         full_sync=bool(args.full_sync),
+        imap_host=_env_or_value(getattr(args, "host", None), "MAILATLAS_IMAP_HOST"),
+        imap_port=_int_from_env_or_value(getattr(args, "port", None), "MAILATLAS_IMAP_PORT", 993),
+        imap_username=_env_or_value(getattr(args, "username", None), "MAILATLAS_IMAP_USERNAME"),
+        imap_auth="xoauth2" if imap_access_token else "password",
+        imap_password=imap_password,
+        imap_access_token=imap_access_token,
+        imap_folders=tuple(getattr(args, "folder", None) or ["INBOX"]),
         parser_config=_parser_config_from_args(args),
     )
 
@@ -485,7 +527,7 @@ def _build_parser() -> argparse.ArgumentParser:
     root_parent = _root_parent_parser()
     parser = argparse.ArgumentParser(
         prog="mailatlas",
-        description="Local email ingestion, Gmail receive, export, sending, and audit trails for AI agents and data applications.",
+        description="Local email ingestion, mailbox receive, export, sending, and audit trails for AI agents and data applications.",
         parents=[root_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -527,32 +569,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sync_parser = subparsers.add_parser(
         "sync",
-        help="Sync one or more IMAP folders.",
+        help="Compatibility alias for receiving one or more IMAP folders.",
         parents=[root_parent],
     )
-    sync_parser.add_argument("--host", default=None, help="IMAP hostname or use MAILATLAS_IMAP_HOST.")
-    sync_parser.add_argument("--port", type=int, default=None, help="IMAP TLS port or use MAILATLAS_IMAP_PORT.")
-    sync_parser.add_argument("--username", default=None, help="IMAP username or use MAILATLAS_IMAP_USERNAME.")
-    sync_parser.add_argument("--password", default=None, help="IMAP password or use MAILATLAS_IMAP_PASSWORD.")
-    sync_parser.add_argument(
-        "--access-token",
-        default=None,
-        help="OAuth access token or use MAILATLAS_IMAP_ACCESS_TOKEN.",
-    )
-    sync_parser.add_argument(
-        "--folder",
-        action="append",
-        default=None,
-        help="Folder to sync. Repeat for multiple folders. Defaults to INBOX.",
-    )
+    _add_imap_config_arguments(sync_parser)
     _add_parser_config_arguments(sync_parser)
 
     receive_parser = subparsers.add_parser(
         "receive",
-        help="Receive Gmail messages into the local workspace.",
+        help="Receive mailbox messages into the local workspace.",
         parents=[root_parent],
     )
     _add_receive_config_arguments(receive_parser)
+    _add_imap_config_arguments(receive_parser)
     receive_subparsers = receive_parser.add_subparsers(dest="receive_command")
 
     receive_watch_parser = receive_subparsers.add_parser(
@@ -561,6 +590,7 @@ def _build_parser() -> argparse.ArgumentParser:
         parents=[root_parent],
     )
     _add_receive_config_arguments(receive_watch_parser)
+    _add_imap_config_arguments(receive_watch_parser)
     receive_watch_parser.add_argument("--interval", type=int, default=None, help="Polling interval in seconds. Defaults to 60.")
     receive_watch_parser.add_argument("--max-runs", type=int, default=None, help="Optional watch run limit for scripts and tests.")
 
@@ -780,13 +810,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sync":
         try:
-            result = atlas.sync_imap(_imap_sync_config_from_args(args))
+            result = atlas.receive(_receive_config_from_imap_sync_args(args))
         except (ImapSyncError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 1
 
-        print(json.dumps(result.to_dict(), indent=2))
-        return 1 if result.has_errors() else 0
+        if result.details:
+            print(json.dumps(result.details, indent=2))
+        elif result.error:
+            print(result.error, file=sys.stderr)
+        else:
+            print(json.dumps(result.to_dict(), indent=2))
+        return _receive_exit_code(result.status)
 
     if args.command == "send":
         try:

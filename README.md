@@ -1,12 +1,12 @@
 # MailAtlas
 
-**MailAtlas turns email files, Gmail mailboxes, and manually synced IMAP folders into cleaned text, HTML, assets, metadata, exportable artifacts, and local outbound email audit records for applications.**
+**MailAtlas turns email files and live mailboxes into cleaned text, HTML, assets, metadata, exportable artifacts, and local outbound email audit records for applications.**
 
 MailAtlas has local email I/O paths:
 
 - ingest email files already on disk with `ingest`
-- receive Gmail messages into the local workspace with `receive`
-- connect to a live mailbox with `sync` and fetch selected folders manually
+- receive Gmail or IMAP messages into the local workspace with `receive`
+- keep a live mailbox current with `receive watch`
 - compose and send outbound email through providers you configure at runtime with `send`
 - expose local documents, outbound audit records, drafts, and gated receive/send actions through an
   optional MCP server
@@ -21,7 +21,7 @@ MailAtlas produces:
 - document metadata and provenance
 - JSON, Markdown, HTML, and PDF exports from stored documents
 - Gmail API receive with local cursors and no mailbox mutation
-- manual, incremental IMAP sync into the same local store
+- incremental IMAP receive into the same local store
 - outbound `.eml` snapshots, body files, attachment copies, provider status, and retry metadata
 
 MailAtlas is a library and CLI for parsing, receiving, storing, exporting, sending through
@@ -36,7 +36,7 @@ connector.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
 - Receive Gmail messages with a read-only OAuth token and store them in the same local workspace.
-- Manually sync selected IMAP folders without storing mailbox credentials in the local store.
+- Receive selected IMAP folders without storing mailbox credentials in the local store.
 - Send through SMTP or Cloudflare Email Service using runtime credentials without storing provider secrets.
 - Keep a local audit trail of outbound drafts, dry runs, sends, failures, BCC recipients, and attachments.
 - Start with the built-in filesystem and SQLite store, then copy the resulting files and metadata into your own storage stack if needed.
@@ -115,8 +115,8 @@ mailatlas mcp --root .mailatlas
 Use the same provider environment variables as `mailatlas send` for SMTP, Cloudflare, or Gmail.
 Provider secrets are consumed at runtime and are not written to the local store.
 
-Gmail receive tools are also hidden by default. Enable them only when the MCP client should be able
-to contact Gmail and write private email into the local workspace:
+Mailbox receive tools are also hidden by default. Enable them only when the MCP client should be able
+to contact a provider and write private email into the local workspace:
 
 ```bash
 export MAILATLAS_MCP_ALLOW_RECEIVE=1
@@ -159,7 +159,7 @@ You can also override the root per command with `--root`.
 ## Next Steps
 
 - Use the [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/) for the file-based path.
-- Use [Manual IMAP sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/) when MailAtlas should connect to a live mailbox.
+- Use [IMAP Sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/) when MailAtlas should connect to a live mailbox.
 - Use the [CLI overview](https://mailatlas.dev/docs/cli/overview/) for the full command surface.
 - Use [mailatlas/sample-data](https://github.com/mailatlas/sample-data) for synthetic `.eml` and `.mbox` fixtures.
 - Use [mailatlas/examples](https://github.com/mailatlas/examples) for runnable demos and integration examples.
@@ -181,20 +181,32 @@ git clone https://github.com/mailatlas/sample-data
 mailatlas ingest sample-data/fixtures/mbox/atlas-demo.mbox
 ```
 
-Manual IMAP sync is incremental by folder and stores only non-secret cursor state:
+IMAP receive is incremental by folder and stores only non-secret cursor state:
 
 ```bash
 export MAILATLAS_IMAP_HOST=imap.example.com
 export MAILATLAS_IMAP_USERNAME=user@example.com
 export MAILATLAS_IMAP_ACCESS_TOKEN=oauth-access-token
 
-mailatlas sync \
+mailatlas receive \
+  --provider imap \
   --folder INBOX \
   --folder Newsletters
 ```
 
 MailAtlas consumes the access token you already have. It does not run a browser login flow or act
 as your OAuth client.
+
+Run foreground polling when you want IMAP folders to stay current:
+
+```bash
+mailatlas receive watch \
+  --provider imap \
+  --folder INBOX \
+  --interval 60
+```
+
+`mailatlas sync` remains as a compatibility alias for one-shot IMAP receive.
 
 Parser cleanup is configurable:
 
@@ -314,7 +326,7 @@ pass short-lived access tokens to `SendConfig(provider="gmail", gmail_access_tok
 ## Python API Example
 
 ```python
-from mailatlas import ImapSyncConfig, MailAtlas, OutboundMessage, ParserConfig, ReceiveConfig, SendConfig
+from mailatlas import MailAtlas, OutboundMessage, ParserConfig, ReceiveConfig, SendConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
@@ -333,12 +345,13 @@ refs = atlas.ingest_eml(
     ],
 )
 
-sync_result = atlas.sync_imap(
-    ImapSyncConfig(
-        host="imap.example.com",
-        username="user@example.com",
-        password="app-password",
-        folders=("INBOX", "Newsletters"),
+imap_receive_result = atlas.receive(
+    ReceiveConfig(
+        provider="imap",
+        imap_host="imap.example.com",
+        imap_username="user@example.com",
+        imap_password="app-password",
+        imap_folders=("INBOX", "Newsletters"),
     )
 )
 
@@ -409,7 +422,7 @@ Outbound provider secrets are read from CLI flags, environment variables, or exp
 - [Documentation](https://mailatlas.dev/docs)
 - [Installation guide](https://mailatlas.dev/docs/getting-started/installation/)
 - [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/)
-- [Manual IMAP sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/)
+- [IMAP Sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/)
 - [CLI overview](https://mailatlas.dev/docs/cli/overview/)
 - [Examples repository](https://github.com/mailatlas/examples)
 - [Sample data repository](https://github.com/mailatlas/sample-data)

@@ -494,6 +494,51 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(archive_state.uidvalidity, "202")
             self.assertEqual(archive_state.last_uid, 8)
 
+    def test_receive_imap_ingests_live_mailbox_and_records_receive_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("Inbox One", "<imap-receive-1@example.com>"),
+                            2: _imap_message_bytes("Inbox Two", "<imap-receive-2@example.com>"),
+                        },
+                    }
+                }
+            )
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                result = atlas.receive(
+                    ReceiveConfig(
+                        provider="imap",
+                        imap_host="imap.example.com",
+                        imap_username="user@example.com",
+                        imap_password="app-password",
+                        imap_folders=("INBOX",),
+                    )
+                )
+
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(result.provider, "imap")
+            self.assertEqual(result.account_id, "imap:user@example.com:imap.example.com:INBOX")
+            self.assertEqual(result.fetched_count, 2)
+            self.assertEqual(result.ingested_count, 2)
+            self.assertEqual(set(result.document_ids), {reference.id for reference in atlas.list_documents()})
+            self.assertEqual(result.cursor["folders"][0]["folder"], "INBOX")
+            self.assertEqual(result.cursor["folders"][0]["last_uid"], 2)
+            self.assertEqual(result.details["folders"][0]["folder"], "INBOX")
+            self.assertNotIn("app-password", json.dumps(result.to_dict()))
+
+            status = atlas.receive_status(account_id=result.account_id)
+            self.assertEqual(status["accounts"][0]["provider"], "imap")
+            self.assertEqual(status["accounts"][0]["email"], "user@example.com")
+            self.assertEqual(status["cursors"][0]["provider"], "imap")
+            self.assertEqual(status["recent_runs"][0]["provider"], "imap")
+            self.assertEqual(status["recent_runs"][0]["fetched_count"], 2)
+
     def test_sync_imap_incremental_runs_fetch_only_new_uids(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1250,12 +1295,25 @@ class MailAtlasTests(unittest.TestCase):
         self.assertIn("mailatlas[keychain]", stderr.getvalue())
 
     def test_cli_sync_uses_env_defaults_and_cli_precedence(self) -> None:
-        result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
+        sync_result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
+        result = ReceiveResult(
+            status="ok",
+            provider="imap",
+            account_id="imap:user@example.com:imap.example.com:INBOX",
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=0,
+            document_ids=(),
+            cursor={"folders": []},
+            run_id="run-1",
+            details=sync_result.to_dict(),
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "mailatlas-root"
 
-            with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result) as sync_mock:
+            with mock.patch.object(mailatlas_cli.MailAtlas, "receive", return_value=result) as receive_mock:
                 with mock.patch.dict(
                     os.environ,
                     {
@@ -1268,7 +1326,7 @@ class MailAtlasTests(unittest.TestCase):
                 ):
                     with mock.patch("sys.stdout", new_callable=io.StringIO):
                         exit_code = mailatlas_cli.main(["sync", "--root", root.as_posix()])
-                        env_config = sync_mock.call_args.args[0]
+                        env_config = receive_mock.call_args.args[0]
 
                     with mock.patch("sys.stdout", new_callable=io.StringIO):
                         override_code = mailatlas_cli.main(
@@ -1286,24 +1344,25 @@ class MailAtlasTests(unittest.TestCase):
                                 "Inbox/Subfolder",
                             ]
                         )
-                        cli_config = sync_mock.call_args.args[0]
+                        cli_config = receive_mock.call_args.args[0]
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(env_config.host, "env.example.com")
-        self.assertEqual(env_config.port, 1993)
-        self.assertEqual(env_config.username, "env-user@example.com")
-        self.assertEqual(env_config.password, "env-secret")
-        self.assertEqual(env_config.auth, "password")
-        self.assertEqual(env_config.folders, ("INBOX",))
+        self.assertEqual(env_config.provider, "imap")
+        self.assertEqual(env_config.imap_host, "env.example.com")
+        self.assertEqual(env_config.imap_port, 1993)
+        self.assertEqual(env_config.imap_username, "env-user@example.com")
+        self.assertEqual(env_config.imap_password, "env-secret")
+        self.assertEqual(env_config.imap_auth, "password")
+        self.assertEqual(env_config.imap_folders, ("INBOX",))
         self.assertEqual(override_code, 0)
-        self.assertEqual(cli_config.host, "cli.example.com")
-        self.assertEqual(cli_config.username, "cli-user@example.com")
-        self.assertEqual(cli_config.password, "cli-secret")
-        self.assertEqual(cli_config.auth, "password")
-        self.assertEqual(cli_config.folders, ("Inbox/Subfolder",))
+        self.assertEqual(cli_config.imap_host, "cli.example.com")
+        self.assertEqual(cli_config.imap_username, "cli-user@example.com")
+        self.assertEqual(cli_config.imap_password, "cli-secret")
+        self.assertEqual(cli_config.imap_auth, "password")
+        self.assertEqual(cli_config.imap_folders, ("Inbox/Subfolder",))
 
     def test_cli_sync_returns_nonzero_when_any_folder_fails(self) -> None:
-        result = ImapSyncResult(
+        sync_result = ImapSyncResult(
             host="imap.example.com",
             port=993,
             username="user@example.com",
@@ -1321,10 +1380,23 @@ class MailAtlasTests(unittest.TestCase):
                 )
             ],
         )
+        result = ReceiveResult(
+            status="error",
+            provider="imap",
+            account_id="imap:user@example.com:imap.example.com:INBOX",
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=1,
+            document_ids=(),
+            cursor={"folders": []},
+            run_id="run-1",
+            details=sync_result.to_dict(),
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "mailatlas-root"
-            with mock.patch.object(mailatlas_cli.MailAtlas, "sync_imap", return_value=result):
+            with mock.patch.object(mailatlas_cli.MailAtlas, "receive", return_value=result):
                 with mock.patch("sys.stdout", new_callable=io.StringIO):
                     exit_code = mailatlas_cli.main(
                         [
@@ -1341,6 +1413,48 @@ class MailAtlasTests(unittest.TestCase):
                     )
 
         self.assertEqual(exit_code, 1)
+
+    def test_cli_receive_imap_fetches_one_pass_and_prints_provider_neutral_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            connection = FakeImapConnection(
+                {
+                    "INBOX": {
+                        "uidvalidity": 101,
+                        "messages": {
+                            1: _imap_message_bytes("CLI IMAP Receive", "<cli-imap-receive@example.com>"),
+                        },
+                    }
+                }
+            )
+
+            with mock.patch("mailatlas.adapters.imap.imaplib.IMAP4_SSL", return_value=connection):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "receive",
+                            "--root",
+                            root.as_posix(),
+                            "--provider",
+                            "imap",
+                            "--host",
+                            "imap.example.com",
+                            "--username",
+                            "user@example.com",
+                            "--password",
+                            "app-password",
+                            "--folder",
+                            "INBOX",
+                        ]
+                    )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["provider"], "imap")
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["fetched_count"], 1)
+            self.assertEqual(payload["details"]["folders"][0]["folder"], "INBOX")
+            self.assertNotIn("app-password", stdout.getvalue())
 
     def test_cli_send_dry_run_writes_outbound_record_and_returns_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1566,6 +1680,39 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(payload["document_ids"], ["doc-1"])
             self.assertEqual(config_arg.limit, 1)
             self.assertEqual(config_arg.gmail_access_token, "mcp-token")
+
+    def test_mcp_receive_supports_imap_provider_config(self) -> None:
+        result = ReceiveResult(
+            status="ok",
+            provider="imap",
+            account_id="imap:user@example.com:imap.example.com:INBOX",
+            fetched_count=1,
+            ingested_count=1,
+            duplicate_count=0,
+            error_count=0,
+            document_ids=("doc-1",),
+            cursor={"folders": []},
+            run_id="run-1",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_receive=True, receive_on_read=False)
+            with mock.patch.object(tools.atlas, "receive", return_value=result) as receive_mock:
+                payload = tools.receive(
+                    provider="imap",
+                    imap_host="imap.example.com",
+                    imap_username="user@example.com",
+                    imap_password="app-password",
+                    imap_folders=["INBOX"],
+                )
+
+        config_arg = receive_mock.call_args.args[0]
+
+        self.assertEqual(payload["provider"], "imap")
+        self.assertEqual(config_arg.provider, "imap")
+        self.assertEqual(config_arg.imap_host, "imap.example.com")
+        self.assertEqual(config_arg.imap_username, "user@example.com")
+        self.assertEqual(config_arg.imap_folders, ("INBOX",))
 
     def test_cli_mcp_delegates_to_mcp_server(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1848,6 +1995,55 @@ class MailAtlasTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual(payload["run_id"], "run-1")
         self.assertEqual(config_arg.gmail_access_token, "one-off-token")
+
+    def test_cli_receive_watch_supports_imap_provider(self) -> None:
+        result = ReceiveResult(
+            status="ok",
+            provider="imap",
+            account_id="imap:user@example.com:imap.example.com:INBOX",
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=0,
+            document_ids=(),
+            cursor={"folders": []},
+            run_id="run-1",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch.object(mailatlas_cli.MailAtlas, "receive", return_value=result) as receive_mock:
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "receive",
+                            "watch",
+                            "--root",
+                            root.as_posix(),
+                            "--provider",
+                            "imap",
+                            "--host",
+                            "imap.example.com",
+                            "--username",
+                            "user@example.com",
+                            "--password",
+                            "app-password",
+                            "--folder",
+                            "INBOX",
+                            "--max-runs",
+                            "1",
+                        ]
+                    )
+
+        lines = stdout.getvalue().splitlines()
+        payload = json.loads(lines[0])
+        config_arg = receive_mock.call_args.args[0]
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["provider"], "imap")
+        self.assertEqual(config_arg.provider, "imap")
+        self.assertEqual(config_arg.imap_host, "imap.example.com")
+        self.assertEqual(config_arg.imap_folders, ("INBOX",))
 
     def test_cli_auth_status_and_logout_do_not_print_gmail_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

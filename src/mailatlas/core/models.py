@@ -187,6 +187,13 @@ class ReceiveConfig:
     token_file: str | None = None
     limit: int = 50
     full_sync: bool = False
+    imap_host: str | None = None
+    imap_port: int = 993
+    imap_username: str | None = None
+    imap_auth: str | None = None
+    imap_password: str | None = field(default=None, repr=False)
+    imap_access_token: str | None = field(default=None, repr=False)
+    imap_folders: str | tuple[str, ...] | list[str] = ("INBOX",)
     parser_config: ParserConfig = field(default_factory=ParserConfig)
 
     def __post_init__(self) -> None:
@@ -198,11 +205,23 @@ class ReceiveConfig:
         gmail_query = self.gmail_query.strip() if self.gmail_query and self.gmail_query.strip() else None
         token_store = self.token_store.strip() if self.token_store and self.token_store.strip() else None
         token_file = self.token_file.strip() if self.token_file and self.token_file.strip() else None
+        imap_host = self.imap_host.strip() if self.imap_host and self.imap_host.strip() else None
+        imap_username = self.imap_username.strip() if self.imap_username and self.imap_username.strip() else None
+        imap_auth = self.imap_auth.strip().lower() if self.imap_auth and self.imap_auth.strip() else None
+        imap_folders = tuple(folder.strip() for folder in _string_tuple(self.imap_folders) if folder and folder.strip()) or ("INBOX",)
 
-        if provider != "gmail":
-            raise ValueError("Receive provider must be 'gmail'.")
+        if provider not in {"gmail", "imap"}:
+            raise ValueError("Receive provider must be 'gmail' or 'imap'.")
         if self.limit < 1 or self.limit > 500:
             raise ValueError("Receive limit must be between 1 and 500.")
+        if self.imap_port < 1 or self.imap_port > 65535:
+            raise ValueError("IMAP port must be between 1 and 65535.")
+        if imap_auth is not None and imap_auth not in {"password", "xoauth2"}:
+            raise ValueError("IMAP auth must be 'password' or 'xoauth2'.")
+        if self.imap_password and self.imap_access_token:
+            raise ValueError("Choose either IMAP password auth or IMAP access-token auth, not both.")
+        if imap_auth is None:
+            imap_auth = "xoauth2" if self.imap_access_token else "password"
 
         object.__setattr__(self, "provider", provider)
         object.__setattr__(self, "account_id", account_id)
@@ -212,22 +231,42 @@ class ReceiveConfig:
         object.__setattr__(self, "gmail_query", gmail_query)
         object.__setattr__(self, "token_store", token_store)
         object.__setattr__(self, "token_file", token_file)
+        object.__setattr__(self, "imap_host", imap_host)
+        object.__setattr__(self, "imap_username", imap_username)
+        object.__setattr__(self, "imap_auth", imap_auth)
+        object.__setattr__(self, "imap_folders", imap_folders)
 
     def to_safe_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "provider": self.provider,
             "account_id": self.account_id,
-            "gmail_api_base": self.gmail_api_base,
-            "gmail_user_id": self.gmail_user_id,
-            "gmail_label": self.gmail_label,
-            "gmail_query": self.gmail_query,
-            "gmail_include_spam_trash": self.gmail_include_spam_trash,
-            "token_store": self.token_store,
-            "token_file": self.token_file,
             "limit": self.limit,
             "full_sync": self.full_sync,
             "parser_config": self.parser_config.to_dict(),
         }
+        if self.provider == "imap":
+            payload.update(
+                {
+                    "imap_host": self.imap_host,
+                    "imap_port": self.imap_port,
+                    "imap_username": self.imap_username,
+                    "imap_auth": self.imap_auth,
+                    "imap_folders": list(self.imap_folders),
+                }
+            )
+        else:
+            payload.update(
+                {
+                    "gmail_api_base": self.gmail_api_base,
+                    "gmail_user_id": self.gmail_user_id,
+                    "gmail_label": self.gmail_label,
+                    "gmail_query": self.gmail_query,
+                    "gmail_include_spam_trash": self.gmail_include_spam_trash,
+                    "token_store": self.token_store,
+                    "token_file": self.token_file,
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -243,10 +282,13 @@ class ReceiveResult:
     cursor: dict[str, object]
     run_id: str
     error: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["document_ids"] = list(self.document_ids)
+        if not self.details:
+            payload.pop("details", None)
         return payload
 
 

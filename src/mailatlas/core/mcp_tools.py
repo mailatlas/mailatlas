@@ -106,7 +106,15 @@ def _receive_config(
     gmail_user_id: str | None = None,
     token_file: str | None = None,
     token_store: str | None = None,
+    imap_host: str | None = None,
+    imap_port: int | str | None = None,
+    imap_username: str | None = None,
+    imap_password: str | None = None,
+    imap_access_token: str | None = None,
+    imap_folders: str | list[str] | tuple[str, ...] | None = None,
 ) -> ReceiveConfig:
+    resolved_imap_password = _env_or_value(imap_password, "MAILATLAS_IMAP_PASSWORD")
+    resolved_imap_access_token = _env_or_value(imap_access_token, "MAILATLAS_IMAP_ACCESS_TOKEN")
     return ReceiveConfig(
         provider=_env_or_value(provider, "MAILATLAS_RECEIVE_PROVIDER", "gmail") or "gmail",
         account_id=account_id,
@@ -120,6 +128,13 @@ def _receive_config(
         token_file=_env_or_value(token_file, "MAILATLAS_GMAIL_TOKEN_FILE"),
         limit=_int_env_or_value(limit, "MAILATLAS_GMAIL_RECEIVE_LIMIT", 50),
         full_sync=full_sync,
+        imap_host=_env_or_value(imap_host, "MAILATLAS_IMAP_HOST"),
+        imap_port=_int_env_or_value(imap_port, "MAILATLAS_IMAP_PORT", 993),
+        imap_username=_env_or_value(imap_username, "MAILATLAS_IMAP_USERNAME"),
+        imap_auth="xoauth2" if resolved_imap_access_token else "password",
+        imap_password=resolved_imap_password,
+        imap_access_token=resolved_imap_access_token,
+        imap_folders=_as_tuple(imap_folders) or ("INBOX",),
     )
 
 
@@ -235,6 +250,12 @@ class MailAtlasMcpTools:
         gmail_user_id: str | None = None,
         token_file: str | None = None,
         token_store: str | None = None,
+        imap_host: str | None = None,
+        imap_port: int | str | None = None,
+        imap_username: str | None = None,
+        imap_password: str | None = None,
+        imap_access_token: str | None = None,
+        imap_folders: str | list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         config = _receive_config(
             provider=provider,
@@ -249,6 +270,12 @@ class MailAtlasMcpTools:
             gmail_user_id=gmail_user_id,
             token_file=token_file,
             token_store=token_store,
+            imap_host=imap_host,
+            imap_port=imap_port,
+            imap_username=imap_username,
+            imap_password=imap_password,
+            imap_access_token=imap_access_token,
+            imap_folders=imap_folders,
         )
         if not self.allow_receive:
             return {
