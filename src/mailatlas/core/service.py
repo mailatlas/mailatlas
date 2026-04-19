@@ -16,16 +16,13 @@ from mailatlas.adapters.gmail import (
     list_gmail_message_candidates,
     send_gmail_message,
 )
-from mailatlas.adapters.imap import ImapSyncError, open_imap_session
+from mailatlas.adapters.imap import ImapReceiveError, open_imap_session
 from mailatlas.adapters.smtp import send_smtp_message
 
 from .exports import export_document as export_document_content
 from .gmail_auth import GMAIL_READONLY_SCOPE, create_gmail_token_store, load_valid_gmail_access_token
 from .models import (
     DocumentRef,
-    ImapFolderSyncResult,
-    ImapSyncConfig,
-    ImapSyncResult,
     NormalizedDocument,
     OutboundMessage,
     OutboundMessageRecord,
@@ -37,6 +34,9 @@ from .models import (
     ReceiveRun,
     SendConfig,
     SendResult,
+    _ImapFolderReceiveResult,
+    _ImapReceiveConfig,
+    _ImapReceiveResult,
 )
 from .outbound import build_outbound_mime, normalize_outbound_message, outbound_metadata, send_result_from_record
 from .parsing import parse_email_bytes, parse_eml as parse_eml_file
@@ -84,8 +84,8 @@ def _receive_account_query(config: ReceiveConfig) -> str | None:
     return config.gmail_query
 
 
-def _imap_config_from_receive_config(config: ReceiveConfig) -> ImapSyncConfig:
-    return ImapSyncConfig(
+def _imap_config_from_receive_config(config: ReceiveConfig) -> _ImapReceiveConfig:
+    return _ImapReceiveConfig(
         host=config.imap_host or "",
         port=config.imap_port,
         username=config.imap_username or "",
@@ -97,11 +97,11 @@ def _imap_config_from_receive_config(config: ReceiveConfig) -> ImapSyncConfig:
     )
 
 
-def _imap_receive_cursor(sync_result: ImapSyncResult) -> dict[str, object]:
+def _imap_receive_cursor(receive_result: _ImapReceiveResult) -> dict[str, object]:
     return {
-        "host": sync_result.host,
-        "port": sync_result.port,
-        "username": sync_result.username,
+        "host": receive_result.host,
+        "port": receive_result.port,
+        "username": receive_result.username,
         "folders": [
             {
                 "folder": folder.folder,
@@ -110,7 +110,7 @@ def _imap_receive_cursor(sync_result: ImapSyncResult) -> dict[str, object]:
                 "last_uid": folder.last_uid,
                 "error": folder.error,
             }
-            for folder in sync_result.folders
+            for folder in receive_result.folders
         ],
     }
 
@@ -186,8 +186,8 @@ class MailAtlas:
     ) -> list[DocumentRef]:
         return [result.ref for result in self.ingest_mbox_results(path, parser_config=parser_config)]
 
-    def sync_imap(self, config: ImapSyncConfig) -> ImapSyncResult:
-        results: list[ImapFolderSyncResult] = []
+    def _receive_imap_folders(self, config: _ImapReceiveConfig) -> _ImapReceiveResult:
+        results: list[_ImapFolderReceiveResult] = []
 
         with open_imap_session(config) as session:
             for folder in config.folders:
@@ -240,7 +240,7 @@ class MailAtlas:
                         status="ok",
                     )
                     results.append(
-                        ImapFolderSyncResult(
+                        _ImapFolderReceiveResult(
                             folder=folder,
                             status="ok",
                             uidvalidity=state.uidvalidity,
@@ -263,7 +263,7 @@ class MailAtlas:
                         error=str(error),
                     )
                     results.append(
-                        ImapFolderSyncResult(
+                        _ImapFolderReceiveResult(
                             folder=folder,
                             status="error",
                             uidvalidity=state.uidvalidity,
@@ -275,7 +275,7 @@ class MailAtlas:
                         )
                     )
 
-        return ImapSyncResult(
+        return _ImapReceiveResult(
             host=config.host,
             port=config.port,
             username=config.username,
@@ -330,7 +330,7 @@ class MailAtlas:
         run = self.store.start_receive_run(account_id, config.provider)
 
         try:
-            sync_result = self.sync_imap(_imap_config_from_receive_config(config))
+            imap_result = self._receive_imap_folders(_imap_config_from_receive_config(config))
         except ValueError as error:
             self.store.finish_receive_run(
                 run.id,
@@ -354,7 +354,7 @@ class MailAtlas:
                 run_id=run.id,
                 error=str(error),
             )
-        except ImapSyncError as error:
+        except ImapReceiveError as error:
             self.store.finish_receive_run(
                 run.id,
                 status="error",
@@ -379,7 +379,7 @@ class MailAtlas:
             )
 
         document_ids: list[str] = []
-        for folder in sync_result.folders:
+        for folder in imap_result.folders:
             for reference in folder.document_refs:
                 document_ids.append(reference.id)
                 self.store.add_receive_run_document(
@@ -390,11 +390,11 @@ class MailAtlas:
                     error=folder.error,
                 )
 
-        fetched_count = sum(folder.fetched_count for folder in sync_result.folders)
-        ingested_count = sum(folder.ingested_count for folder in sync_result.folders)
-        duplicate_count = sum(folder.duplicate_count for folder in sync_result.folders)
-        error_count = sum(1 for folder in sync_result.folders if folder.status == "error")
-        last_error = next((folder.error for folder in sync_result.folders if folder.error), None)
+        fetched_count = sum(folder.fetched_count for folder in imap_result.folders)
+        ingested_count = sum(folder.ingested_count for folder in imap_result.folders)
+        duplicate_count = sum(folder.duplicate_count for folder in imap_result.folders)
+        error_count = sum(1 for folder in imap_result.folders if folder.status == "error")
+        last_error = next((folder.error for folder in imap_result.folders if folder.error), None)
         if error_count:
             status = "partial" if ingested_count or duplicate_count else "error"
         elif fetched_count and not ingested_count:
@@ -402,7 +402,7 @@ class MailAtlas:
         else:
             status = "ok"
 
-        cursor = _imap_receive_cursor(sync_result)
+        cursor = _imap_receive_cursor(imap_result)
         self.store.save_receive_cursor(account_id, config.provider, cursor)
         self.store.finish_receive_run(
             run.id,
@@ -425,7 +425,7 @@ class MailAtlas:
             cursor=cursor,
             run_id=run.id,
             error=last_error,
-            details=sync_result.to_dict(),
+            details=imap_result.to_dict(),
         )
 
     def _receive_provider_error_result(

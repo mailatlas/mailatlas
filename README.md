@@ -11,7 +11,7 @@ MailAtlas has local email I/O paths:
 - expose local documents, outbound audit records, drafts, and gated receive/send actions through an
   optional MCP server
 
-An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
+An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP receive.
 
 MailAtlas produces:
 
@@ -159,7 +159,7 @@ You can also override the root per command with `--root`.
 ## Next Steps
 
 - Use the [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/) for the file-based path.
-- Use [IMAP Sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/) when MailAtlas should connect to a live mailbox.
+- Use [IMAP Receive](https://mailatlas.dev/docs/getting-started/manual-imap-sync/) when MailAtlas should connect to a live mailbox.
 - Use the [CLI overview](https://mailatlas.dev/docs/cli/overview/) for the full command surface.
 - Use [mailatlas/sample-data](https://github.com/mailatlas/sample-data) for synthetic `.eml` and `.mbox` fixtures.
 - Use [mailatlas/examples](https://github.com/mailatlas/examples) for runnable demos and integration examples.
@@ -205,8 +205,6 @@ mailatlas receive watch \
   --folder INBOX \
   --interval 60
 ```
-
-`mailatlas sync` remains as a compatibility alias for one-shot IMAP receive.
 
 Parser cleanup is configurable:
 
@@ -399,7 +397,7 @@ MailAtlas writes ordinary files to the filesystem and indexes them in SQLite by 
 - `assets/` for extracted inline and attached files
 - `exports/` for JSON, HTML, and PDF file exports
 - `outbound/raw/`, `outbound/text/`, `outbound/html/`, and `outbound/attachments/` for outbound audit artifacts
-- `store.db` for the SQLite index, receive accounts, receive cursors, receive runs, IMAP sync cursors, and outbound send records
+- `store.db` for the SQLite index, receive accounts, receive cursors, receive runs, IMAP receive cursors, and outbound send records
 
 These are ordinary files and metadata rows. If you are embedding MailAtlas inside a service, you
 can move them into your own blob store and database. PDF export uses headless Chrome or Chromium
@@ -422,7 +420,7 @@ Outbound provider secrets are read from CLI flags, environment variables, or exp
 - [Documentation](https://mailatlas.dev/docs)
 - [Installation guide](https://mailatlas.dev/docs/getting-started/installation/)
 - [Quickstart walkthrough](https://mailatlas.dev/docs/getting-started/quickstart/)
-- [IMAP Sync](https://mailatlas.dev/docs/getting-started/manual-imap-sync/)
+- [IMAP Receive](https://mailatlas.dev/docs/getting-started/manual-imap-sync/)
 - [CLI overview](https://mailatlas.dev/docs/cli/overview/)
 - [Examples repository](https://github.com/mailatlas/examples)
 - [Sample data repository](https://github.com/mailatlas/sample-data)

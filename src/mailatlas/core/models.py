@@ -40,7 +40,7 @@ class ParserConfig:
 
 
 @dataclass(frozen=True)
-class ImapSyncConfig:
+class _ImapReceiveConfig:
     host: str
     username: str
     port: int = 993
@@ -491,7 +491,7 @@ class ImapSyncState:
 
 
 @dataclass
-class ImapFolderSyncResult:
+class _ImapFolderReceiveResult:
     folder: str
     status: str
     uidvalidity: str | None
@@ -509,12 +509,12 @@ class ImapFolderSyncResult:
 
 
 @dataclass
-class ImapSyncResult:
+class _ImapReceiveResult:
     host: str
     port: int
     username: str
     auth: str
-    folders: list[ImapFolderSyncResult] = field(default_factory=list)
+    folders: list[_ImapFolderReceiveResult] = field(default_factory=list)
 
     @property
     def status(self) -> str:

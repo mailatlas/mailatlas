@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import imaplib
 
-from mailatlas.core.models import ImapSyncConfig
+from mailatlas.core.models import _ImapReceiveConfig
 
 
-class ImapSyncError(RuntimeError):
+class ImapReceiveError(RuntimeError):
     pass
 
 
@@ -36,7 +36,7 @@ def _ensure_ok(response_type: str, data: list[bytes] | list[object] | None, acti
             details.append(str(item))
 
     suffix = f": {' | '.join(details)}" if details else ""
-    raise ImapSyncError(f"IMAP {action} failed{suffix}")
+    raise ImapReceiveError(f"IMAP {action} failed{suffix}")
 
 
 def _xoauth2_payload(username: str, access_token: str) -> bytes:
@@ -59,7 +59,7 @@ class ImapSession:
             _ensure_ok(response_type, data, f"select mailbox {folder}")
             _, uidvalidity_response = self._connection.response("UIDVALIDITY")
         except (imaplib.IMAP4.error, OSError) as error:
-            raise ImapSyncError(str(error)) from error
+            raise ImapReceiveError(str(error)) from error
 
         uidvalidity = ""
         for item in uidvalidity_response or []:
@@ -67,14 +67,14 @@ class ImapSession:
                 uidvalidity = _decode_bytes(item).strip()
                 break
         if not uidvalidity:
-            raise ImapSyncError(f"IMAP mailbox {folder} did not report UIDVALIDITY")
+            raise ImapReceiveError(f"IMAP mailbox {folder} did not report UIDVALIDITY")
         return uidvalidity
 
     def list_uids(self) -> list[int]:
         try:
             response_type, data = self._connection.uid("SEARCH", None, "ALL")
         except (imaplib.IMAP4.error, OSError) as error:
-            raise ImapSyncError(str(error)) from error
+            raise ImapReceiveError(str(error)) from error
 
         payload = _ensure_ok(response_type, data, "search")
         if not payload or not payload[0]:
@@ -85,13 +85,13 @@ class ImapSession:
         try:
             response_type, data = self._connection.uid("FETCH", str(uid), "(RFC822)")
         except (imaplib.IMAP4.error, OSError) as error:
-            raise ImapSyncError(str(error)) from error
+            raise ImapReceiveError(str(error)) from error
 
         payload = _ensure_ok(response_type, data, f"fetch UID {uid}")
         for item in payload:
             if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
                 return item[1]
-        raise ImapSyncError(f"IMAP fetch for UID {uid} returned no RFC822 bytes")
+        raise ImapReceiveError(f"IMAP fetch for UID {uid} returned no RFC822 bytes")
 
     def close(self) -> None:
         try:
@@ -100,7 +100,7 @@ class ImapSession:
             pass
 
 
-def open_imap_session(config: ImapSyncConfig) -> ImapSession:
+def open_imap_session(config: _ImapReceiveConfig) -> ImapSession:
     connection: imaplib.IMAP4_SSL | None = None
     try:
         connection = imaplib.IMAP4_SSL(config.host, config.port)
@@ -114,6 +114,6 @@ def open_imap_session(config: ImapSyncConfig) -> ImapSession:
                 connection.logout()
             except (imaplib.IMAP4.error, OSError):
                 pass
-        raise ImapSyncError(str(error)) from error
+        raise ImapReceiveError(str(error)) from error
 
     return ImapSession(connection)

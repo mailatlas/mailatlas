@@ -9,12 +9,10 @@ import tempfile
 from email.message import EmailMessage
 from pathlib import Path
 
-from mailatlas.adapters.imap import ImapSyncError
 from mailatlas.core import (
     GMAIL_READONLY_SCOPE,
     GMAIL_SEND_SCOPE,
     GmailAuthConfig,
-    ImapSyncConfig,
     MailAtlas,
     OutboundAttachment,
     OutboundMessage,
@@ -200,55 +198,6 @@ def _env_or_value(value: str | None, env_name: str, default: str | None = None) 
     if value is not None:
         return value
     return os.environ.get(env_name, default)
-
-
-def _imap_sync_config_from_args(args: argparse.Namespace) -> ImapSyncConfig:
-    host = _env_or_value(args.host, "MAILATLAS_IMAP_HOST")
-    port_raw = _env_or_value(str(args.port) if args.port is not None else None, "MAILATLAS_IMAP_PORT", "993")
-    username = _env_or_value(args.username, "MAILATLAS_IMAP_USERNAME")
-    password = _env_or_value(args.password, "MAILATLAS_IMAP_PASSWORD")
-    access_token = _env_or_value(args.access_token, "MAILATLAS_IMAP_ACCESS_TOKEN")
-    folders = tuple(args.folder or ["INBOX"])
-
-    if password and access_token:
-        raise ValueError("Choose either password auth or access-token auth, not both.")
-    if access_token:
-        auth = "xoauth2"
-    elif password:
-        auth = "password"
-    else:
-        raise ValueError("Provide either an IMAP password or an IMAP access token.")
-
-    try:
-        port = int(port_raw or "993")
-    except ValueError as error:
-        raise ValueError("IMAP port must be an integer.") from error
-
-    return ImapSyncConfig(
-        host=host or "",
-        port=port,
-        username=username or "",
-        auth=auth,
-        password=password,
-        access_token=access_token,
-        folders=folders,
-        parser_config=_parser_config_from_args(args),
-    )
-
-
-def _receive_config_from_imap_sync_args(args: argparse.Namespace) -> ReceiveConfig:
-    imap_config = _imap_sync_config_from_args(args)
-    return ReceiveConfig(
-        provider="imap",
-        imap_host=imap_config.host,
-        imap_port=imap_config.port,
-        imap_username=imap_config.username,
-        imap_auth=imap_config.auth,
-        imap_password=imap_config.password,
-        imap_access_token=imap_config.access_token,
-        imap_folders=imap_config.folders,
-        parser_config=imap_config.parser_config,
-    )
 
 
 def _env_bool(env_name: str, default: bool) -> bool:
@@ -567,14 +516,6 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List stored documents.", parents=[root_parent])
     list_parser.add_argument("--query", default=None, help="Optional substring query.")
 
-    sync_parser = subparsers.add_parser(
-        "sync",
-        help="Compatibility alias for receiving one or more IMAP folders.",
-        parents=[root_parent],
-    )
-    _add_imap_config_arguments(sync_parser)
-    _add_parser_config_arguments(sync_parser)
-
     receive_parser = subparsers.add_parser(
         "receive",
         help="Receive mailbox messages into the local workspace.",
@@ -807,21 +748,6 @@ def main(argv: list[str] | None = None) -> int:
             print(str(error), file=sys.stderr)
             return 1
         return 0
-
-    if args.command == "sync":
-        try:
-            result = atlas.receive(_receive_config_from_imap_sync_args(args))
-        except (ImapSyncError, ValueError) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-
-        if result.details:
-            print(json.dumps(result.details, indent=2))
-        elif result.error:
-            print(result.error, file=sys.stderr)
-        else:
-            print(json.dumps(result.to_dict(), indent=2))
-        return _receive_exit_code(result.status)
 
     if args.command == "send":
         try:
