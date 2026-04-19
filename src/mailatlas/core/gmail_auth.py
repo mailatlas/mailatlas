@@ -19,6 +19,7 @@ from typing import Any, Callable, Protocol
 
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
@@ -42,6 +43,7 @@ class GmailAuthResult:
     email: str | None
     scopes: tuple[str, ...]
     expires_at: float | None
+    capabilities: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -50,6 +52,7 @@ class GmailAuthResult:
             "store_type": self.store_type,
             "store_path": self.store_path,
             "email": self.email,
+            "capabilities": list(self.capabilities),
             "scopes": list(self.scopes),
             "expires_at": self.expires_at,
         }
@@ -226,6 +229,34 @@ def _token_scopes(token: dict[str, Any]) -> tuple[str, ...]:
     return (GMAIL_SEND_SCOPE,)
 
 
+def gmail_scopes_for_capabilities(capabilities: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    scopes: list[str] = []
+    for capability in capabilities:
+        normalized = capability.strip().lower()
+        if normalized == "send":
+            scopes.append(GMAIL_SEND_SCOPE)
+        elif normalized == "receive":
+            scopes.append(GMAIL_READONLY_SCOPE)
+        else:
+            raise ValueError("Gmail auth capability must be 'send' or 'receive'.")
+    return tuple(dict.fromkeys(scopes))
+
+
+def _capabilities_from_scopes(scopes: tuple[str, ...]) -> tuple[str, ...]:
+    capabilities: list[str] = []
+    scope_set = set(scopes)
+    if GMAIL_SEND_SCOPE in scope_set:
+        capabilities.append("send")
+    if GMAIL_READONLY_SCOPE in scope_set:
+        capabilities.append("receive")
+    return tuple(capabilities)
+
+
+def token_has_scopes(token: dict[str, Any], required_scopes: tuple[str, ...] | list[str]) -> bool:
+    scope_set = set(_token_scopes(token))
+    return all(scope in scope_set for scope in required_scopes)
+
+
 def _with_expiration(payload: dict[str, Any], *, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     token = dict(existing or {})
     token.update(payload)
@@ -382,17 +413,30 @@ def run_gmail_auth_flow(
     return token_status(token, store=store, authenticated_status="ok")
 
 
-def load_valid_gmail_access_token(*, store: TokenStore | None = None) -> str:
+def load_valid_gmail_access_token(
+    *,
+    store: TokenStore | None = None,
+    required_scopes: tuple[str, ...] | list[str] = (),
+) -> str:
     store = store or create_gmail_token_store()
     token = store.load()
     if not token:
         raise ValueError("Gmail auth is not configured. Run 'mailatlas auth gmail' or set MAILATLAS_GMAIL_ACCESS_TOKEN.")
+    if required_scopes and not token_has_scopes(token, required_scopes):
+        capabilities = ", ".join(_capabilities_from_scopes(_token_scopes(token))) or "none"
+        raise ValueError(
+            "Stored Gmail auth is missing the receive scope. "
+            "Run 'mailatlas auth gmail --capability receive' or pass MAILATLAS_GMAIL_ACCESS_TOKEN. "
+            f"Configured capabilities: {capabilities}."
+        )
 
     expires_at = token.get("expires_at")
     if token.get("access_token") and isinstance(expires_at, (int, float)) and float(expires_at) > time.time() + 60:
         return str(token["access_token"])
 
     refreshed = refresh_gmail_token(token)
+    if required_scopes and not token_has_scopes(refreshed, required_scopes):
+        raise ValueError("Refreshed Gmail auth is missing the required Gmail scope.")
     store.save(refreshed)
     return str(refreshed["access_token"])
 
@@ -412,14 +456,17 @@ def token_status(
             email=None,
             scopes=(),
             expires_at=None,
+            capabilities=(),
         )
+    scopes = _token_scopes(token)
     return GmailAuthResult(
         status=authenticated_status,
         store_path=store.store_path,
         store_type=store.store_type,
         email=str(token["email"]) if token.get("email") else None,
-        scopes=_token_scopes(token),
+        scopes=scopes,
         expires_at=float(token["expires_at"]) if isinstance(token.get("expires_at"), (int, float)) else None,
+        capabilities=_capabilities_from_scopes(scopes),
     )
 
 
@@ -438,4 +485,5 @@ def gmail_auth_logout(*, store: TokenStore | None = None) -> GmailAuthResult:
         email=None,
         scopes=(),
         expires_at=None,
+        capabilities=(),
     )

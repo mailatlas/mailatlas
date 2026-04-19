@@ -1,14 +1,15 @@
 # MailAtlas
 
-**MailAtlas turns email files and manually synced IMAP folders into cleaned text, HTML, assets, metadata, exportable artifacts, and local outbound email audit records for applications.**
+**MailAtlas turns email files, Gmail mailboxes, and manually synced IMAP folders into cleaned text, HTML, assets, metadata, exportable artifacts, and local outbound email audit records for applications.**
 
-MailAtlas has three local email I/O paths:
+MailAtlas has local email I/O paths:
 
 - ingest email files already on disk with `ingest`
+- receive Gmail messages into the local workspace with `receive`
 - connect to a live mailbox with `sync` and fetch selected folders manually
 - compose and send outbound email through providers you configure at runtime with `send`
-- expose local documents, outbound audit records, drafts, and gated sends through an optional MCP
-  server
+- expose local documents, outbound audit records, drafts, and gated receive/send actions through an
+  optional MCP server
 
 An `mbox` file is a mailbox file on disk. It is not the same thing as IMAP sync.
 
@@ -19,12 +20,14 @@ MailAtlas produces:
 - extracted inline images and attachments
 - document metadata and provenance
 - JSON, Markdown, HTML, and PDF exports from stored documents
+- Gmail API receive with local cursors and no mailbox mutation
 - manual, incremental IMAP sync into the same local store
 - outbound `.eml` snapshots, body files, attachment copies, provider status, and retry metadata
 
-MailAtlas is a library and CLI for parsing, storing, exporting, sending through configured
-providers, and auditing email for AI agents, retrieval systems, analytics pipelines, and archival
-systems. It is not a hosted deliverability service or inbox client.
+MailAtlas is a library and CLI for parsing, receiving, storing, exporting, sending through
+configured providers, and auditing email for AI agents, retrieval systems, analytics pipelines,
+and archival systems. It is not a hosted deliverability service, inbox client, or cloud mailbox
+connector.
 
 ## Why MailAtlas
 
@@ -32,6 +35,7 @@ systems. It is not a hosted deliverability service or inbox client.
 - Preserve provenance, forwarded chains, inline images, and regular attachments.
 - Apply configurable cleaning for boilerplate, wrappers, footer noise, and link-only lines.
 - Export JSON, Markdown, HTML, and PDF artifacts from stored documents.
+- Receive Gmail messages with a read-only OAuth token and store them in the same local workspace.
 - Manually sync selected IMAP folders without storing mailbox credentials in the local store.
 - Send through SMTP or Cloudflare Email Service using runtime credentials without storing provider secrets.
 - Keep a local audit trail of outbound drafts, dry runs, sends, failures, BCC recipients, and attachments.
@@ -111,6 +115,17 @@ mailatlas mcp --root .mailatlas
 Use the same provider environment variables as `mailatlas send` for SMTP, Cloudflare, or Gmail.
 Provider secrets are consumed at runtime and are not written to the local store.
 
+Gmail receive tools are also hidden by default. Enable them only when the MCP client should be able
+to contact Gmail and write private email into the local workspace:
+
+```bash
+export MAILATLAS_MCP_ALLOW_RECEIVE=1
+mailatlas mcp --root .mailatlas
+```
+
+Set `MAILATLAS_MCP_RECEIVE_ON_READ=1` only if read tools should run one receive pass before listing
+documents. Without that flag, MCP read tools use only messages already stored locally.
+
 ## Verify The Install
 
 ```bash
@@ -131,6 +146,7 @@ By default, MailAtlas writes to `.mailatlas` in the current directory:
 - `assets/`
 - `exports/`
 - `outbound/`
+- receive account, cursor, and run rows in `store.db`
 
 Set `MAILATLAS_HOME` once if you want MailAtlas to reuse a different root automatically:
 
@@ -215,7 +231,8 @@ mailatlas send \
 ```
 
 For personal Gmail addresses, prefer Gmail API OAuth instead of SMTP app passwords. Create a
-Google OAuth desktop client, then authorize MailAtlas once:
+Google OAuth desktop client, then authorize MailAtlas once. The default Gmail auth capability is
+send-only for compatibility:
 
 ```bash
 python -m pip install "mailatlas[keychain]"
@@ -228,6 +245,19 @@ mailatlas auth gmail \
 mailatlas auth status gmail
 ```
 
+To receive Gmail, request the read-only receive capability:
+
+```bash
+mailatlas auth gmail \
+  --client-id "$MAILATLAS_GMAIL_CLIENT_ID" \
+  --client-secret "$MAILATLAS_GMAIL_CLIENT_SECRET" \
+  --email user@gmail.com \
+  --capability receive
+```
+
+Use `--capability send,receive` when the same local token should support both Gmail send and Gmail
+receive.
+
 Then send through the Gmail API:
 
 ```bash
@@ -239,8 +269,33 @@ mailatlas send \
   --text "Sent with Gmail API OAuth."
 ```
 
+Receive a bounded Gmail pass into the local workspace:
+
+```bash
+mailatlas receive \
+  --provider gmail \
+  --label INBOX \
+  --limit 50
+```
+
+Run foreground polling when you want the workspace to stay current:
+
+```bash
+mailatlas receive watch \
+  --provider gmail \
+  --label INBOX \
+  --interval 60
+```
+
+Inspect local receive accounts, cursors, and recent runs:
+
+```bash
+mailatlas receive status
+```
+
 MailAtlas stores Gmail OAuth tokens outside the workspace by default and never writes them to
-`store.db`, raw snapshots, logs, or JSON send results. Revoke the local token with:
+`store.db`, raw snapshots, logs, or JSON send/receive results. Received raw messages, normalized
+bodies, assets, and exports are local private data. Revoke the local token with:
 
 ```bash
 mailatlas auth logout gmail
@@ -253,12 +308,13 @@ or `--token-store keychain` to require keychain storage. `MAILATLAS_GMAIL_TOKEN_
 file store when no token store is passed explicitly.
 
 Backend applications should store Gmail refresh tokens in their own encrypted credential store and
-pass short-lived access tokens to `SendConfig(provider="gmail", gmail_access_token="...")`.
+pass short-lived access tokens to `SendConfig(provider="gmail", gmail_access_token="...")` or
+`ReceiveConfig(gmail_access_token="...")`.
 
 ## Python API Example
 
 ```python
-from mailatlas import ImapSyncConfig, MailAtlas, OutboundMessage, ParserConfig, SendConfig
+from mailatlas import ImapSyncConfig, MailAtlas, OutboundMessage, ParserConfig, ReceiveConfig, SendConfig
 
 atlas = MailAtlas(
     db_path=".mailatlas/store.db",
@@ -283,6 +339,14 @@ sync_result = atlas.sync_imap(
         username="user@example.com",
         password="app-password",
         folders=("INBOX", "Newsletters"),
+    )
+)
+
+receive_result = atlas.receive(
+    ReceiveConfig(
+        gmail_access_token="ya29...",
+        gmail_label="INBOX",
+        limit=50,
     )
 )
 
@@ -322,7 +386,7 @@ MailAtlas writes ordinary files to the filesystem and indexes them in SQLite by 
 - `assets/` for extracted inline and attached files
 - `exports/` for JSON, HTML, and PDF file exports
 - `outbound/raw/`, `outbound/text/`, `outbound/html/`, and `outbound/attachments/` for outbound audit artifacts
-- `store.db` for the SQLite index, IMAP sync cursors, and outbound send records
+- `store.db` for the SQLite index, receive accounts, receive cursors, receive runs, IMAP sync cursors, and outbound send records
 
 These are ordinary files and metadata rows. If you are embedding MailAtlas inside a service, you
 can move them into your own blob store and database. PDF export uses headless Chrome or Chromium

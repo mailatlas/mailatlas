@@ -6,13 +6,18 @@ from pathlib import Path
 from .core.mcp_tools import MailAtlasMcpTools
 
 
-def build_mcp_server(*, root: str | Path | None = None, allow_send: bool | None = None):
+def build_mcp_server(
+    *,
+    root: str | Path | None = None,
+    allow_send: bool | None = None,
+    allow_receive: bool | None = None,
+):
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as error:
         raise RuntimeError("Install MailAtlas with the MCP extra first: python -m pip install 'mailatlas[mcp]'") from error
 
-    toolkit = MailAtlasMcpTools(root=root, allow_send=allow_send)
+    toolkit = MailAtlasMcpTools(root=root, allow_send=allow_send, allow_receive=allow_receive)
     mcp = FastMCP("MailAtlas")
 
     @mcp.tool()
@@ -147,6 +152,44 @@ def build_mcp_server(*, root: str | Path | None = None, allow_send: bool | None 
                 gmail_token_file=gmail_token_file,
                 gmail_token_store=gmail_token_store,
             )
+
+    if toolkit.allow_receive:
+
+        @mcp.tool()
+        def mailatlas_receive(
+            provider: str | None = None,
+            account_id: str | None = None,
+            label: str | None = None,
+            query: str | None = None,
+            limit: int | None = None,
+            full_sync: bool = False,
+            include_spam_trash: bool | None = None,
+            gmail_access_token: str | None = None,
+            gmail_api_base: str | None = None,
+            gmail_user_id: str | None = None,
+            token_file: str | None = None,
+            token_store: str | None = None,
+        ) -> dict:
+            """Consequential action: contact Gmail and store received private email in the local MailAtlas workspace."""
+            return toolkit.receive(
+                provider=provider,
+                account_id=account_id,
+                label=label,
+                query=query,
+                limit=limit,
+                full_sync=full_sync,
+                include_spam_trash=include_spam_trash,
+                gmail_access_token=gmail_access_token,
+                gmail_api_base=gmail_api_base,
+                gmail_user_id=gmail_user_id,
+                token_file=token_file,
+                token_store=token_store,
+            )
+
+        @mcp.tool()
+        def mailatlas_receive_status(account_id: str | None = None) -> dict:
+            """Inspect local receive accounts, cursors, recent runs, and recent receive errors."""
+            return toolkit.receive_status(account_id=account_id)
 
     return mcp
 

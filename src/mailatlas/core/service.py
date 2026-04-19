@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import mailbox
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from mailatlas.adapters.cloudflare import send_cloudflare_message
-from mailatlas.adapters.gmail import send_gmail_message
+from mailatlas.adapters.gmail import (
+    GmailReceiveError,
+    build_gmail_cursor,
+    fetch_gmail_message,
+    get_gmail_profile,
+    gmail_source_uri,
+    list_gmail_message_candidates,
+    send_gmail_message,
+)
 from mailatlas.adapters.imap import open_imap_session
 from mailatlas.adapters.smtp import send_smtp_message
 
 from .exports import export_document as export_document_content
+from .gmail_auth import GMAIL_READONLY_SCOPE, create_gmail_token_store, load_valid_gmail_access_token
 from .models import (
     DocumentRef,
     ImapFolderSyncResult,
@@ -21,6 +31,10 @@ from .models import (
     OutboundMessageRecord,
     OutboundMessageRef,
     ParserConfig,
+    ReceiveAccount,
+    ReceiveConfig,
+    ReceiveResult,
+    ReceiveRun,
     SendConfig,
     SendResult,
 )
@@ -32,6 +46,18 @@ from .storage import DocumentSaveResult, WorkspaceStore
 def _imap_source_path(host: str, port: int, folder: str, uid: int) -> str:
     encoded_folder = quote(folder, safe="")
     return f"imap://{host}:{port}/{encoded_folder}#uid={uid}"
+
+
+def _receive_account_id(config: ReceiveConfig, email: str | None = None) -> str:
+    if config.account_id:
+        return config.account_id
+    identity = email or config.gmail_user_id or "me"
+    label = config.gmail_label or "ALL"
+    account_id = f"{config.provider}:{identity}:{label}"
+    if config.gmail_query:
+        query_hash = hashlib.sha256(config.gmail_query.encode("utf-8")).hexdigest()[:12]
+        account_id = f"{account_id}:q-{query_hash}"
+    return account_id
 
 
 def _utc_now() -> str:
@@ -201,6 +227,247 @@ class MailAtlas:
             auth=config.auth,
             folders=results,
         )
+
+    def _receive_not_configured_result(self, config: ReceiveConfig, error: str) -> ReceiveResult:
+        account_id = _receive_account_id(config)
+        self.store.save_receive_account(
+            account_id=account_id,
+            provider=config.provider,
+            email=None,
+            label=config.gmail_label,
+            query=config.gmail_query,
+            config=config.to_safe_dict(),
+        )
+        run = self.store.start_receive_run(account_id, config.provider)
+        self.store.finish_receive_run(
+            run.id,
+            status="not_configured",
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=1,
+            error=error,
+        )
+        return ReceiveResult(
+            status="not_configured",
+            provider=config.provider,
+            account_id=account_id,
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=1,
+            document_ids=(),
+            cursor={},
+            run_id=run.id,
+            error=error,
+        )
+
+    def _receive_provider_error_result(
+        self,
+        config: ReceiveConfig,
+        *,
+        account_id: str,
+        run_id: str,
+        status: str,
+        error: str,
+        cursor: dict[str, object] | None = None,
+    ) -> ReceiveResult:
+        self.store.finish_receive_run(
+            run_id,
+            status=status,
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=1,
+            error=error,
+        )
+        return ReceiveResult(
+            status=status,
+            provider=config.provider,
+            account_id=account_id,
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=1,
+            document_ids=(),
+            cursor=cursor or {},
+            run_id=run_id,
+            error=error,
+        )
+
+    def receive(self, config: ReceiveConfig) -> ReceiveResult:
+        try:
+            access_token = config.gmail_access_token or load_valid_gmail_access_token(
+                store=create_gmail_token_store(config.token_file, token_store=config.token_store),
+                required_scopes=(GMAIL_READONLY_SCOPE,),
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            return self._receive_not_configured_result(config, str(error))
+
+        profile_email: str | None = None
+        profile_history_id: str | None = None
+        try:
+            profile = get_gmail_profile(config, access_token)
+            profile_email = profile.get("email")
+            profile_history_id = profile.get("history_id")
+        except GmailReceiveError as error:
+            account_id = _receive_account_id(config)
+            self.store.save_receive_account(
+                account_id=account_id,
+                provider=config.provider,
+                email=None,
+                label=config.gmail_label,
+                query=config.gmail_query,
+                config=config.to_safe_dict(),
+            )
+            run = self.store.start_receive_run(account_id, config.provider)
+            return self._receive_provider_error_result(
+                config,
+                account_id=account_id,
+                run_id=run.id,
+                status=error.status,
+                error=str(error),
+            )
+
+        account_id = _receive_account_id(config, profile_email)
+        self.store.save_receive_account(
+            account_id=account_id,
+            provider=config.provider,
+            email=profile_email,
+            label=config.gmail_label,
+            query=config.gmail_query,
+            config=config.to_safe_dict(),
+        )
+        run = self.store.start_receive_run(account_id, config.provider)
+        existing_cursor = self.store.get_receive_cursor(account_id)
+        cursor_json = dict(existing_cursor.cursor_json) if existing_cursor else {}
+
+        try:
+            candidates = list_gmail_message_candidates(config, access_token, cursor=cursor_json)
+        except GmailReceiveError as error:
+            return self._receive_provider_error_result(
+                config,
+                account_id=account_id,
+                run_id=run.id,
+                status=error.status,
+                error=str(error),
+                cursor=cursor_json,
+            )
+
+        fetched_messages = []
+        document_ids: list[str] = []
+        ingested_count = 0
+        duplicate_count = 0
+        error_count = 0
+        last_error: str | None = None
+
+        for candidate in candidates:
+            try:
+                message = fetch_gmail_message(config, access_token, candidate.id)
+                fetched_messages.append(message)
+                parsed = parse_email_bytes(message.raw_bytes, source_kind="gmail", parser_config=config.parser_config)
+                source_uri = gmail_source_uri(config, message.id)
+                parsed.metadata = {
+                    **parsed.metadata,
+                    "source_kind": "gmail",
+                    "source_uri": source_uri,
+                    "provider": "gmail",
+                    "gmail": {
+                        "message_id": message.id,
+                        "thread_id": message.thread_id,
+                        "history_id": message.history_id,
+                        "internal_date": message.internal_date,
+                        "label_ids": list(message.label_ids),
+                        "account_id": account_id,
+                    },
+                    "source": {
+                        "kind": "gmail",
+                        "uri": source_uri,
+                        "provider_message_id": message.id,
+                    },
+                }
+                saved = self.store.save_document_result(parsed, source_uri)
+                document_ids.append(saved.ref.id)
+                if saved.status == "duplicate":
+                    duplicate_count += 1
+                else:
+                    ingested_count += 1
+                self.store.add_receive_run_document(
+                    run.id,
+                    saved.ref.id,
+                    status=saved.status,
+                    provider_message_id=message.id,
+                )
+            except Exception as error:
+                error_count += 1
+                last_error = str(error)
+
+        fetched_count = len(candidates)
+        if error_count:
+            status = "partial" if ingested_count or duplicate_count else "error"
+        elif fetched_count and not ingested_count:
+            status = "duplicate"
+        else:
+            status = "ok"
+
+        new_cursor = cursor_json
+        if error_count == 0:
+            new_cursor = build_gmail_cursor(
+                fetched_messages,
+                profile_history_id=profile_history_id,
+                existing_cursor=cursor_json,
+            )
+            self.store.save_receive_cursor(account_id, config.provider, new_cursor)
+
+        self.store.finish_receive_run(
+            run.id,
+            status=status,
+            fetched_count=fetched_count,
+            ingested_count=ingested_count,
+            duplicate_count=duplicate_count,
+            error_count=error_count,
+            error=last_error,
+        )
+        return ReceiveResult(
+            status=status,
+            provider=config.provider,
+            account_id=account_id,
+            fetched_count=fetched_count,
+            ingested_count=ingested_count,
+            duplicate_count=duplicate_count,
+            error_count=error_count,
+            document_ids=tuple(document_ids),
+            cursor=new_cursor,
+            run_id=run.id,
+            error=last_error,
+        )
+
+    def receive_status(self, account_id: str | None = None) -> dict[str, object]:
+        accounts = [
+            account
+            for account in self.store.list_receive_accounts()
+            if account_id is None or account.id == account_id
+        ]
+        cursors = []
+        for account in accounts:
+            cursor = self.store.get_receive_cursor(account.id)
+            if cursor:
+                cursors.append(cursor.to_dict())
+        runs = self.store.list_receive_runs(account_id=account_id, limit=20)
+        last_error = next((run.error for run in runs if run.error), None)
+        return {
+            "status": "ok",
+            "accounts": [account.to_dict() for account in accounts],
+            "cursors": cursors,
+            "recent_runs": [run.to_dict() for run in runs],
+            "last_error": last_error,
+        }
+
+    def list_receive_accounts(self) -> list[ReceiveAccount]:
+        return self.store.list_receive_accounts()
+
+    def list_receive_runs(self, account_id: str | None = None, limit: int = 20) -> list[ReceiveRun]:
+        return self.store.list_receive_runs(account_id=account_id, limit=limit)
 
     def get_document(self, document_id: str):
         return self.store.get_document(document_id)

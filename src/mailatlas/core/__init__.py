@@ -11,6 +11,11 @@ from .models import (
     OutboundMessageRef,
     ParsedAsset,
     ParserConfig,
+    ReceiveAccount,
+    ReceiveConfig,
+    ReceiveCursor,
+    ReceiveResult,
+    ReceiveRun,
     SendConfig,
     SendResult,
     StoredAsset,
@@ -20,16 +25,18 @@ from .parsing import parse_eml
 from .service import MailAtlas
 from .storage import WorkspaceStore
 from .gmail_auth import (
+    GMAIL_READONLY_SCOPE,
     GMAIL_SEND_SCOPE,
     FileTokenStore,
     GmailAuthConfig,
     KeyringTokenStore,
     create_gmail_token_store,
+    gmail_scopes_for_capabilities,
     gmail_auth_logout,
     gmail_auth_status,
     run_gmail_auth_flow,
 )
-from .mcp_tools import MailAtlasMcpTools, mcp_send_enabled, mcp_tool_names
+from .mcp_tools import MailAtlasMcpTools, mcp_receive_enabled, mcp_send_enabled, mcp_tool_names
 
 __all__ = [
     "DocumentRecord",
@@ -46,18 +53,26 @@ __all__ = [
     "OutboundMessageRef",
     "ParsedAsset",
     "ParserConfig",
+    "ReceiveAccount",
+    "ReceiveConfig",
+    "ReceiveCursor",
+    "ReceiveResult",
+    "ReceiveRun",
     "SendConfig",
     "SendResult",
     "StoredAsset",
     "StoredOutboundAttachment",
     "WorkspaceStore",
+    "GMAIL_READONLY_SCOPE",
     "GMAIL_SEND_SCOPE",
     "FileTokenStore",
     "GmailAuthConfig",
     "KeyringTokenStore",
     "create_gmail_token_store",
+    "gmail_scopes_for_capabilities",
     "gmail_auth_logout",
     "gmail_auth_status",
+    "mcp_receive_enabled",
     "mcp_send_enabled",
     "mcp_tool_names",
     "parse_eml",

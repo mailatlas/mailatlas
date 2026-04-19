@@ -19,6 +19,9 @@ from .models import (
     OutboundMessage,
     OutboundMessageRecord,
     OutboundMessageRef,
+    ReceiveAccount,
+    ReceiveCursor,
+    ReceiveRun,
     StoredAsset,
     StoredOutboundAttachment,
 )
@@ -189,6 +192,47 @@ class WorkspaceStore:
                     file_path TEXT NOT NULL,
                     sha256 TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS receive_accounts (
+                    id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    email TEXT,
+                    label TEXT,
+                    query TEXT,
+                    config_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS receive_cursors (
+                    account_id TEXT PRIMARY KEY REFERENCES receive_accounts(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    cursor_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS receive_runs (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL REFERENCES receive_accounts(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    fetched_count INTEGER NOT NULL DEFAULT 0,
+                    ingested_count INTEGER NOT NULL DEFAULT 0,
+                    duplicate_count INTEGER NOT NULL DEFAULT 0,
+                    error_count INTEGER NOT NULL DEFAULT 0,
+                    error TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS receive_run_documents (
+                    run_id TEXT NOT NULL REFERENCES receive_runs(id) ON DELETE CASCADE,
+                    document_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    provider_message_id TEXT,
+                    error TEXT,
+                    PRIMARY KEY (run_id, document_id)
+                );
                 """
             )
 
@@ -231,7 +275,7 @@ class WorkspaceStore:
 
         document_id = str(uuid.uuid4())
         created_at = _utc_now()
-        raw_extension = ".eml" if document.source_kind in {"eml", "imap"} else ".bin"
+        raw_extension = ".eml" if document.source_kind in {"eml", "imap", "gmail"} else ".bin"
         raw_relative = Path("raw") / f"{document_id}{raw_extension}"
         raw_target = self.workspace_path / raw_relative
         raw_target.write_bytes(document.raw_bytes)
@@ -607,6 +651,231 @@ class WorkspaceStore:
                 ).fetchall()
 
         return [self._outbound_ref_from_row(row) for row in rows]
+
+    def _receive_account_from_row(self, row: sqlite3.Row) -> ReceiveAccount:
+        return ReceiveAccount(
+            id=row["id"],
+            provider=row["provider"],
+            email=row["email"],
+            label=row["label"],
+            query=row["query"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _receive_run_from_row(self, row: sqlite3.Row) -> ReceiveRun:
+        return ReceiveRun(
+            id=row["id"],
+            account_id=row["account_id"],
+            provider=row["provider"],
+            status=row["status"],
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            fetched_count=int(row["fetched_count"] or 0),
+            ingested_count=int(row["ingested_count"] or 0),
+            duplicate_count=int(row["duplicate_count"] or 0),
+            error_count=int(row["error_count"] or 0),
+            error=row["error"],
+        )
+
+    def save_receive_account(
+        self,
+        *,
+        account_id: str,
+        provider: str,
+        email: str | None,
+        label: str | None,
+        query: str | None,
+        config: dict[str, object],
+    ) -> ReceiveAccount:
+        now = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO receive_accounts (id, provider, email, label, query, config_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id)
+                DO UPDATE SET
+                    provider = excluded.provider,
+                    email = excluded.email,
+                    label = excluded.label,
+                    query = excluded.query,
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at
+                """,
+                (account_id, provider, email, label, query, json.dumps(config), now, now),
+            )
+        return self.get_receive_account(account_id)
+
+    def get_receive_account(self, account_id: str) -> ReceiveAccount:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, provider, email, label, query, created_at, updated_at
+                FROM receive_accounts
+                WHERE id = ?
+                """,
+                (account_id,),
+            ).fetchone()
+        if not row:
+            raise KeyError(f"Receive account not found: {account_id}")
+        return self._receive_account_from_row(row)
+
+    def list_receive_accounts(self) -> list[ReceiveAccount]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, provider, email, label, query, created_at, updated_at
+                FROM receive_accounts
+                ORDER BY updated_at DESC, created_at DESC
+                """
+            ).fetchall()
+        return [self._receive_account_from_row(row) for row in rows]
+
+    def get_receive_cursor(self, account_id: str) -> ReceiveCursor | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT account_id, provider, cursor_json, updated_at
+                FROM receive_cursors
+                WHERE account_id = ?
+                """,
+                (account_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return ReceiveCursor(
+            account_id=row["account_id"],
+            provider=row["provider"],
+            cursor_json=json.loads(row["cursor_json"]),
+            updated_at=row["updated_at"],
+        )
+
+    def save_receive_cursor(self, account_id: str, provider: str, cursor: dict[str, object]) -> ReceiveCursor:
+        updated_at = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO receive_cursors (account_id, provider, cursor_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(account_id)
+                DO UPDATE SET
+                    provider = excluded.provider,
+                    cursor_json = excluded.cursor_json,
+                    updated_at = excluded.updated_at
+                """,
+                (account_id, provider, json.dumps(cursor), updated_at),
+            )
+        saved = self.get_receive_cursor(account_id)
+        if saved is None:
+            raise KeyError(f"Receive cursor not found after save: {account_id}")
+        return saved
+
+    def start_receive_run(self, account_id: str, provider: str) -> ReceiveRun:
+        run_id = str(uuid.uuid4())
+        started_at = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO receive_runs (
+                    id, account_id, provider, status, started_at, fetched_count,
+                    ingested_count, duplicate_count, error_count
+                )
+                VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0)
+                """,
+                (run_id, account_id, provider, "running", started_at),
+            )
+        return self.get_receive_run(run_id)
+
+    def get_receive_run(self, run_id: str) -> ReceiveRun:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, account_id, provider, status, started_at, finished_at,
+                       fetched_count, ingested_count, duplicate_count, error_count, error
+                FROM receive_runs
+                WHERE id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if not row:
+            raise KeyError(f"Receive run not found: {run_id}")
+        return self._receive_run_from_row(row)
+
+    def finish_receive_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        fetched_count: int,
+        ingested_count: int,
+        duplicate_count: int,
+        error_count: int,
+        error: str | None = None,
+    ) -> ReceiveRun:
+        finished_at = _utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE receive_runs
+                SET status = ?,
+                    finished_at = ?,
+                    fetched_count = ?,
+                    ingested_count = ?,
+                    duplicate_count = ?,
+                    error_count = ?,
+                    error = ?
+                WHERE id = ?
+                """,
+                (status, finished_at, fetched_count, ingested_count, duplicate_count, error_count, error, run_id),
+            )
+        return self.get_receive_run(run_id)
+
+    def add_receive_run_document(
+        self,
+        run_id: str,
+        document_id: str,
+        *,
+        status: str,
+        provider_message_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO receive_run_documents (run_id, document_id, status, provider_message_id, error)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (run_id, document_id, status, provider_message_id, error),
+            )
+
+    def list_receive_runs(self, account_id: str | None = None, limit: int = 20) -> list[ReceiveRun]:
+        normalized_limit = max(1, min(int(limit), 100))
+        with self._connect() as connection:
+            if account_id:
+                rows = connection.execute(
+                    """
+                    SELECT id, account_id, provider, status, started_at, finished_at,
+                           fetched_count, ingested_count, duplicate_count, error_count, error
+                    FROM receive_runs
+                    WHERE account_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (account_id, normalized_limit),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT id, account_id, provider, status, started_at, finished_at,
+                           fetched_count, ingested_count, duplicate_count, error_count, error
+                    FROM receive_runs
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (normalized_limit,),
+                ).fetchall()
+        return [self._receive_run_from_row(row) for row in rows]
 
     def update_outbound_message(
         self,

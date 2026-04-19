@@ -1,20 +1,37 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 from .gmail_auth import create_gmail_token_store, load_valid_gmail_access_token
-from .models import OutboundAttachment, OutboundMessage, SendConfig
+from .models import OutboundAttachment, OutboundMessage, ReceiveConfig, SendConfig
 from .service import MailAtlas
+from mailatlas.receive import receive_watch
 
 
 def mcp_send_enabled() -> bool:
     return os.environ.get("MAILATLAS_MCP_ALLOW_SEND", "").strip() == "1"
 
 
-def mcp_tool_names(*, allow_send: bool | None = None) -> tuple[str, ...]:
+def mcp_receive_enabled() -> bool:
+    return os.environ.get("MAILATLAS_MCP_ALLOW_RECEIVE", "").strip() == "1"
+
+
+def mcp_receive_on_read_enabled() -> bool:
+    if os.environ.get("MAILATLAS_MCP_RECEIVE_ON_READ", "").strip() == "1":
+        return True
+    return os.environ.get("MAILATLAS_MCP_AUTO_RECEIVE", "").strip() == "1"
+
+
+def mcp_receive_background_enabled() -> bool:
+    return os.environ.get("MAILATLAS_MCP_RECEIVE_BACKGROUND", "").strip() == "1"
+
+
+def mcp_tool_names(*, allow_send: bool | None = None, allow_receive: bool | None = None) -> tuple[str, ...]:
     send_allowed = mcp_send_enabled() if allow_send is None else allow_send
+    receive_allowed = mcp_receive_enabled() if allow_receive is None else allow_receive
     names = [
         "mailatlas_list_documents",
         "mailatlas_get_document",
@@ -25,6 +42,8 @@ def mcp_tool_names(*, allow_send: bool | None = None) -> tuple[str, ...]:
     ]
     if send_allowed:
         names.append("mailatlas_send_email")
+    if receive_allowed:
+        names.extend(["mailatlas_receive", "mailatlas_receive_status"])
     return tuple(names)
 
 
@@ -63,6 +82,45 @@ def _smtp_port(value: int | str | None) -> int:
         return int(raw_value or "587")
     except ValueError as error:
         raise ValueError("SMTP port must be an integer.") from error
+
+
+def _int_env_or_value(value: int | str | None, env_name: str, default: int) -> int:
+    raw_value = str(value) if value is not None else os.environ.get(env_name, str(default))
+    try:
+        return int(raw_value or str(default))
+    except ValueError as error:
+        raise ValueError(f"{env_name} must be an integer.") from error
+
+
+def _receive_config(
+    *,
+    provider: str | None = None,
+    account_id: str | None = None,
+    label: str | None = None,
+    query: str | None = None,
+    limit: int | str | None = None,
+    full_sync: bool = False,
+    include_spam_trash: bool | None = None,
+    gmail_access_token: str | None = None,
+    gmail_api_base: str | None = None,
+    gmail_user_id: str | None = None,
+    token_file: str | None = None,
+    token_store: str | None = None,
+) -> ReceiveConfig:
+    return ReceiveConfig(
+        provider=_env_or_value(provider, "MAILATLAS_RECEIVE_PROVIDER", "gmail") or "gmail",
+        account_id=account_id,
+        gmail_access_token=_env_or_value(gmail_access_token, "MAILATLAS_GMAIL_ACCESS_TOKEN"),
+        gmail_api_base=_env_or_value(gmail_api_base, "MAILATLAS_GMAIL_API_BASE"),
+        gmail_user_id=_env_or_value(gmail_user_id, "MAILATLAS_GMAIL_USER_ID", "me") or "me",
+        gmail_label=_env_or_value(label, "MAILATLAS_GMAIL_RECEIVE_LABEL", "INBOX") or "INBOX",
+        gmail_query=_env_or_value(query, "MAILATLAS_GMAIL_RECEIVE_QUERY"),
+        gmail_include_spam_trash=include_spam_trash if include_spam_trash is not None else _env_bool("MAILATLAS_GMAIL_INCLUDE_SPAM_TRASH", False),
+        token_store=_env_or_value(token_store, "MAILATLAS_GMAIL_TOKEN_STORE"),
+        token_file=_env_or_value(token_file, "MAILATLAS_GMAIL_TOKEN_FILE"),
+        limit=_int_env_or_value(limit, "MAILATLAS_GMAIL_RECEIVE_LIMIT", 50),
+        full_sync=full_sync,
+    )
 
 
 def _outbound_message(
@@ -113,12 +171,37 @@ def _send_result_payload(result, message: OutboundMessage) -> dict[str, Any]:
 
 
 class MailAtlasMcpTools:
-    def __init__(self, *, root: str | Path | None = None, allow_send: bool | None = None):
+    def __init__(
+        self,
+        *,
+        root: str | Path | None = None,
+        allow_send: bool | None = None,
+        allow_receive: bool | None = None,
+        receive_on_read: bool | None = None,
+        receive_background: bool | None = None,
+    ):
         self.root = Path(root or os.environ.get("MAILATLAS_HOME") or ".mailatlas").expanduser().resolve()
         self.atlas = MailAtlas(db_path=self.root / "store.db", workspace_path=self.root)
         self.allow_send = mcp_send_enabled() if allow_send is None else allow_send
+        self.allow_receive = mcp_receive_enabled() if allow_receive is None else allow_receive
+        self.receive_on_read = mcp_receive_on_read_enabled() if receive_on_read is None else receive_on_read
+        self.receive_background = mcp_receive_background_enabled() if receive_background is None else receive_background
+        self._receive_thread: threading.Thread | None = None
+        if self.receive_background:
+            self._receive_thread = threading.Thread(
+                target=receive_watch,
+                kwargs={
+                    "atlas": self.atlas,
+                    "config": _receive_config(),
+                    "interval_seconds": _int_env_or_value(None, "MAILATLAS_RECEIVE_INTERVAL_SECONDS", 60),
+                },
+                daemon=True,
+            )
+            self._receive_thread.start()
 
     def list_documents(self, query: str | None = None) -> dict[str, Any]:
+        if self.receive_on_read:
+            self.atlas.receive(_receive_config())
         refs = self.atlas.list_documents(query=query)
         return {"documents": [ref.to_dict() for ref in refs]}
 
@@ -136,6 +219,48 @@ class MailAtlasMcpTools:
 
     def get_outbound(self, outbound_id: str, include_bcc: bool = False) -> dict[str, Any]:
         return self.atlas.get_outbound(outbound_id).to_dict(include_bcc=include_bcc)
+
+    def receive(
+        self,
+        *,
+        provider: str | None = None,
+        account_id: str | None = None,
+        label: str | None = None,
+        query: str | None = None,
+        limit: int | str | None = None,
+        full_sync: bool = False,
+        include_spam_trash: bool | None = None,
+        gmail_access_token: str | None = None,
+        gmail_api_base: str | None = None,
+        gmail_user_id: str | None = None,
+        token_file: str | None = None,
+        token_store: str | None = None,
+    ) -> dict[str, Any]:
+        config = _receive_config(
+            provider=provider,
+            account_id=account_id,
+            label=label,
+            query=query,
+            limit=limit,
+            full_sync=full_sync,
+            include_spam_trash=include_spam_trash,
+            gmail_access_token=gmail_access_token,
+            gmail_api_base=gmail_api_base,
+            gmail_user_id=gmail_user_id,
+            token_file=token_file,
+            token_store=token_store,
+        )
+        if not self.allow_receive:
+            return {
+                "status": "disabled",
+                "provider": config.provider,
+                "account_id": config.account_id,
+                "error": "MCP receive is disabled. Set MAILATLAS_MCP_ALLOW_RECEIVE=1 to enable mailatlas_receive.",
+            }
+        return self.atlas.receive(config).to_dict()
+
+    def receive_status(self, account_id: str | None = None) -> dict[str, Any]:
+        return self.atlas.receive_status(account_id=account_id)
 
     def draft_email(self, **kwargs: Any) -> dict[str, Any]:
         message = _outbound_message(**kwargs)

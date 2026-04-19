@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mailatlas"
 version = "0.2.0"
-description = "Local email ingestion, export, sending, and audit trails for AI agents and data applications."
+description = "Local email ingestion, Gmail receive, export, sending, and audit trails for AI agents and data applications."
 requires-python = ">=3.11"
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,7 @@ authors = [
 ]
 keywords = [
   "email ingestion",
+  "gmail receive",
   "email sending",
   "outbound email",
   "eml parser",

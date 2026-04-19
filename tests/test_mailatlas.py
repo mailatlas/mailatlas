@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mailatlas.cli as mailatlas_cli
 from mailatlas.core import (
+    GMAIL_READONLY_SCOPE,
     ImapFolderSyncResult,
     ImapSyncConfig,
     ImapSyncResult,
@@ -29,6 +30,8 @@ from mailatlas.core import (
     OutboundAttachment,
     OutboundMessage,
     ParserConfig,
+    ReceiveConfig,
+    ReceiveResult,
     SendConfig,
     SendResult,
     mcp_tool_names,
@@ -152,6 +155,10 @@ def _imap_message_bytes(subject: str, message_id: str) -> bytes:
     message = _plain_message(subject)
     message.replace_header("Message-ID", message_id)
     return message.as_bytes()
+
+
+def _gmail_raw(message: EmailMessage) -> str:
+    return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
 
 
 def _unquote_mailbox(mailbox: str) -> str:
@@ -986,6 +993,148 @@ class MailAtlasTests(unittest.TestCase):
             self.assertIn(b"\nBcc: hidden@example.com", gmail_decoded)
             self.assertIn("gmail-bcc-thread", json.dumps(record.metadata))
 
+    def test_receive_gmail_ingests_raw_messages_and_tracks_cursor(self) -> None:
+        captured_auth: list[str | None] = []
+        message = _plain_message("Gmail Receive")
+        message.replace_header("Message-ID", "<gmail-receive-1@example.com>")
+
+        def fake_urlopen(request, timeout=None):
+            captured_auth.append(request.get_header("Authorization"))
+            url = urllib.parse.urlsplit(request.full_url)
+            if url.path.endswith("/profile"):
+                return FakeHttpResponse({"emailAddress": "user@gmail.com", "historyId": "900"})
+            if url.path.endswith("/messages"):
+                query = dict(urllib.parse.parse_qsl(url.query))
+                self.assertEqual(query["labelIds"], "INBOX")
+                self.assertEqual(query["maxResults"], "50")
+                return FakeHttpResponse({"messages": [{"id": "gmail-message-1", "threadId": "thread-1"}]})
+            if url.path.endswith("/messages/gmail-message-1"):
+                return FakeHttpResponse(
+                    {
+                        "id": "gmail-message-1",
+                        "threadId": "thread-1",
+                        "labelIds": ["INBOX"],
+                        "historyId": "901",
+                        "internalDate": "1710000000000",
+                        "raw": _gmail_raw(message),
+                    }
+                )
+            raise AssertionError(f"Unexpected Gmail API URL: {request.full_url}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = atlas.receive(
+                    ReceiveConfig(
+                        gmail_access_token="gmail-receive-token",
+                        gmail_api_base="https://gmail.test/gmail/v1",
+                    )
+                )
+
+            document = atlas.get_document(result.document_ids[0])
+            status = atlas.receive_status()
+
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(result.account_id, "gmail:user@gmail.com:INBOX")
+            self.assertEqual(result.fetched_count, 1)
+            self.assertEqual(result.ingested_count, 1)
+            self.assertEqual(result.cursor["history_id"], "901")
+            self.assertEqual(result.cursor["last_message_internal_date"], "1710000000000")
+            self.assertEqual(document.source_kind, "gmail")
+            self.assertEqual(document.raw_path.split(".", 1)[1], "eml")
+            self.assertEqual(document.metadata["source_kind"], "gmail")
+            self.assertEqual(document.metadata["source_uri"], "gmail://me/messages/gmail-message-1")
+            self.assertEqual(document.metadata["gmail"]["message_id"], "gmail-message-1")
+            self.assertEqual(document.metadata["gmail"]["account_id"], "gmail:user@gmail.com:INBOX")
+            self.assertEqual(status["accounts"][0]["email"], "user@gmail.com")
+            self.assertEqual(status["cursors"][0]["cursor_json"]["history_id"], "901")
+            self.assertEqual(status["recent_runs"][0]["status"], "ok")
+            self.assertTrue(all(value == "Bearer gmail-receive-token" for value in captured_auth))
+            self.assertNotIn("gmail-receive-token", json.dumps(document.to_dict()))
+
+    def test_receive_gmail_full_sync_dedupes_existing_messages(self) -> None:
+        message = _plain_message("Gmail Duplicate")
+        message.replace_header("Message-ID", "<gmail-duplicate@example.com>")
+
+        def fake_urlopen(request, timeout=None):
+            url = urllib.parse.urlsplit(request.full_url)
+            if url.path.endswith("/profile"):
+                return FakeHttpResponse({"emailAddress": "user@gmail.com", "historyId": "902"})
+            if url.path.endswith("/messages"):
+                return FakeHttpResponse({"messages": [{"id": "gmail-duplicate-1"}]})
+            if url.path.endswith("/messages/gmail-duplicate-1"):
+                return FakeHttpResponse(
+                    {
+                        "id": "gmail-duplicate-1",
+                        "threadId": "thread-duplicate",
+                        "labelIds": ["INBOX"],
+                        "historyId": "902",
+                        "internalDate": "1710000000001",
+                        "raw": _gmail_raw(message),
+                    }
+                )
+            raise AssertionError(f"Unexpected Gmail API URL: {request.full_url}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            config = ReceiveConfig(
+                gmail_access_token="gmail-receive-token",
+                gmail_api_base="https://gmail.test/gmail/v1",
+                full_sync=True,
+            )
+
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                first = atlas.receive(config)
+                second = atlas.receive(config)
+
+            self.assertEqual(first.status, "ok")
+            self.assertEqual(second.status, "duplicate")
+            self.assertEqual(second.ingested_count, 0)
+            self.assertEqual(second.duplicate_count, 1)
+            self.assertEqual(first.document_ids, second.document_ids)
+
+    def test_receive_gmail_history_expiration_requires_explicit_full_sync(self) -> None:
+        account_id = "gmail:user@gmail.com:INBOX"
+
+        def fake_urlopen(request, timeout=None):
+            url = urllib.parse.urlsplit(request.full_url)
+            if url.path.endswith("/profile"):
+                return FakeHttpResponse({"emailAddress": "user@gmail.com", "historyId": "950"})
+            if url.path.endswith("/history"):
+                body = json.dumps({"error": {"message": "History ID is too old.", "code": 404}}).encode("utf-8")
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO(body))
+            raise AssertionError(f"Unexpected Gmail API URL: {request.full_url}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            atlas = MailAtlas(db_path=root / "store.db", workspace_path=root / "workspace")
+            config = ReceiveConfig(
+                account_id=account_id,
+                gmail_access_token="gmail-receive-token",
+                gmail_api_base="https://gmail.test/gmail/v1",
+            )
+            atlas.store.save_receive_account(
+                account_id=account_id,
+                provider="gmail",
+                email="user@gmail.com",
+                label="INBOX",
+                query=None,
+                config=config.to_safe_dict(),
+            )
+            atlas.store.save_receive_cursor(account_id, "gmail", {"history_id": "100"})
+
+            with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = atlas.receive(config)
+
+            self.assertEqual(result.status, "cursor_reset_required")
+            self.assertEqual(result.cursor, {"history_id": "100"})
+            self.assertEqual(result.ingested_count, 0)
+            self.assertIn("History ID is too old", result.error)
+            self.assertEqual(atlas.receive_status(account_id=account_id)["last_error"], result.error)
+
     def test_gmail_oauth_code_exchange_does_not_persist_token_values_in_status(self) -> None:
         captured: dict[str, object] = {}
 
@@ -1319,6 +1468,8 @@ class MailAtlasTests(unittest.TestCase):
         self.assertIn("mailatlas_draft_email", mcp_tool_names(allow_send=False))
         self.assertNotIn("mailatlas_send_email", mcp_tool_names(allow_send=False))
         self.assertIn("mailatlas_send_email", mcp_tool_names(allow_send=True))
+        self.assertNotIn("mailatlas_receive", mcp_tool_names(allow_receive=False))
+        self.assertIn("mailatlas_receive", mcp_tool_names(allow_receive=True))
 
     def test_mcp_draft_email_returns_audit_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1376,6 +1527,45 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(payload["provider"], "smtp")
             self.assertEqual(payload["to"], ["recipient@example.com"])
             self.assertEqual(tools.get_outbound(payload["id"])["subject"], "MCP dry run")
+
+    def test_mcp_receive_is_disabled_by_default_and_hidden_from_read_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_receive=False, receive_on_read=False)
+
+            with mock.patch.object(tools.atlas, "receive") as receive_mock:
+                listed = tools.list_documents()
+                payload = tools.receive(gmail_access_token="mcp-token")
+
+            self.assertEqual(listed, {"documents": []})
+            self.assertFalse(receive_mock.called)
+            self.assertEqual(payload["status"], "disabled")
+            self.assertIn("MAILATLAS_MCP_ALLOW_RECEIVE=1", payload["error"])
+
+    def test_mcp_receive_when_enabled_returns_receive_payload(self) -> None:
+        result = ReceiveResult(
+            status="ok",
+            provider="gmail",
+            account_id="gmail:receiver@gmail.com:INBOX",
+            fetched_count=1,
+            ingested_count=1,
+            duplicate_count=0,
+            error_count=0,
+            document_ids=("doc-1",),
+            cursor={"history_id": "1001"},
+            run_id="run-1",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_receive=True, receive_on_read=False)
+            with mock.patch.object(tools.atlas, "receive", return_value=result) as receive_mock:
+                payload = tools.receive(label="INBOX", limit=1, gmail_access_token="mcp-token")
+
+            config_arg = receive_mock.call_args.args[0]
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["document_ids"], ["doc-1"])
+            self.assertEqual(config_arg.limit, 1)
+            self.assertEqual(config_arg.gmail_access_token, "mcp-token")
 
     def test_cli_mcp_delegates_to_mcp_server(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1516,6 +1706,149 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(captured["authorization"], "Bearer keychain-gmail-token")
             self.assertNotIn("keychain-gmail-token", json.dumps(record.to_dict()))
 
+    def test_cli_receive_uses_stored_readonly_token_and_returns_json(self) -> None:
+        message = _plain_message("CLI Gmail Receive")
+        message.replace_header("Message-ID", "<cli-gmail-receive@example.com>")
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured.setdefault("authorization", request.get_header("Authorization"))
+            url = urllib.parse.urlsplit(request.full_url)
+            if url.path.endswith("/profile"):
+                return FakeHttpResponse({"emailAddress": "receiver@gmail.com", "historyId": "1000"})
+            if url.path.endswith("/messages"):
+                return FakeHttpResponse({"messages": [{"id": "cli-gmail-message"}]})
+            if url.path.endswith("/messages/cli-gmail-message"):
+                return FakeHttpResponse(
+                    {
+                        "id": "cli-gmail-message",
+                        "threadId": "cli-thread",
+                        "labelIds": ["INBOX"],
+                        "historyId": "1001",
+                        "internalDate": "1710000001000",
+                        "raw": _gmail_raw(message),
+                    }
+                )
+            raise AssertionError(f"Unexpected Gmail API URL: {request.full_url}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            storage_root = root / "mailatlas-root"
+            token_path = root / "gmail-token.json"
+            FileTokenStore(token_path).save(
+                {
+                    "access_token": "stored-readonly-token",
+                    "refresh_token": "refresh-token",
+                    "client_id": "client-123",
+                    "expires_at": time.time() + 3600,
+                    "scope": GMAIL_READONLY_SCOPE,
+                    "email": "receiver@gmail.com",
+                }
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        exit_code = mailatlas_cli.main(
+                            [
+                                "receive",
+                                "--root",
+                                storage_root.as_posix(),
+                                "--token-file",
+                                token_path.as_posix(),
+                                "--gmail-api-base",
+                                "https://gmail.test/gmail/v1",
+                            ]
+                        )
+
+            output = stdout.getvalue()
+            payload = json.loads(output)
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            document = atlas.get_document(payload["document_ids"][0])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["account_id"], "gmail:receiver@gmail.com:INBOX")
+            self.assertEqual(captured["authorization"], "Bearer stored-readonly-token")
+            self.assertEqual(document.subject, "CLI Gmail Receive")
+            self.assertNotIn("stored-readonly-token", output)
+
+    def test_cli_receive_rejects_stored_token_without_receive_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            storage_root = root / "mailatlas-root"
+            token_path = root / "gmail-token.json"
+            FileTokenStore(token_path).save(
+                {
+                    "access_token": "send-only-token",
+                    "refresh_token": "refresh-token",
+                    "client_id": "client-123",
+                    "expires_at": time.time() + 3600,
+                    "scope": "https://www.googleapis.com/auth/gmail.send",
+                    "email": "sender@gmail.com",
+                }
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "receive",
+                            "--root",
+                            storage_root.as_posix(),
+                            "--token-file",
+                            token_path.as_posix(),
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            payload = json.loads(output)
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(payload["status"], "not_configured")
+            self.assertIn("missing the receive scope", payload["error"])
+            self.assertNotIn("send-only-token", output)
+
+    def test_cli_receive_watch_prints_one_json_line_per_run(self) -> None:
+        result = ReceiveResult(
+            status="ok",
+            provider="gmail",
+            account_id="gmail:receiver@gmail.com:INBOX",
+            fetched_count=0,
+            ingested_count=0,
+            duplicate_count=0,
+            error_count=0,
+            document_ids=(),
+            cursor={"history_id": "1000"},
+            run_id="run-1",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch.object(mailatlas_cli.MailAtlas, "receive", return_value=result) as receive_mock:
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    exit_code = mailatlas_cli.main(
+                        [
+                            "receive",
+                            "watch",
+                            "--root",
+                            root.as_posix(),
+                            "--gmail-access-token",
+                            "one-off-token",
+                            "--max-runs",
+                            "1",
+                        ]
+                    )
+
+        lines = stdout.getvalue().splitlines()
+        payload = json.loads(lines[0])
+        config_arg = receive_mock.call_args.args[0]
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(payload["run_id"], "run-1")
+        self.assertEqual(config_arg.gmail_access_token, "one-off-token")
+
     def test_cli_auth_status_and_logout_do_not_print_gmail_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             token_path = Path(temp_dir) / "gmail-token.json"
@@ -1592,6 +1925,46 @@ class MailAtlasTests(unittest.TestCase):
             self.assertFalse(auth_mock.call_args.kwargs["open_browser"])
             self.assertEqual(json.loads(output)["status"], "ok")
             self.assertNotIn("client-secret", output)
+
+    def test_cli_auth_gmail_capability_receive_requests_readonly_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "gmail-token.json"
+            fake_result = GmailAuthResult(
+                status="ok",
+                store_path=token_path.as_posix(),
+                store_type="file",
+                email="receiver@gmail.com",
+                scopes=(GMAIL_READONLY_SCOPE,),
+                expires_at=1893456000,
+                capabilities=("receive",),
+            )
+
+            with mock.patch("mailatlas.cli.run_gmail_auth_flow", return_value=fake_result) as auth_mock:
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        exit_code = mailatlas_cli.main(
+                            [
+                                "auth",
+                                "gmail",
+                                "--client-id",
+                                "client-123",
+                                "--email",
+                                "receiver@gmail.com",
+                                "--capability",
+                                "receive",
+                                "--token-file",
+                                token_path.as_posix(),
+                                "--no-browser",
+                            ]
+                        )
+
+            config_arg = auth_mock.call_args.args[0]
+            payload = json.loads(stdout.getvalue())
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(config_arg.scopes, (GMAIL_READONLY_SCOPE,))
+            self.assertEqual(payload["capabilities"], ["receive"])
+            self.assertEqual(payload["scopes"], [GMAIL_READONLY_SCOPE])
 
     def test_cli_ingest_auto_detects_inputs_and_reports_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

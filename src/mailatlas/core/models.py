@@ -174,6 +174,126 @@ class SendResult:
 
 
 @dataclass(frozen=True)
+class ReceiveConfig:
+    provider: str = "gmail"
+    account_id: str | None = None
+    gmail_access_token: str | None = field(default=None, repr=False)
+    gmail_api_base: str | None = None
+    gmail_user_id: str = "me"
+    gmail_label: str = "INBOX"
+    gmail_query: str | None = None
+    gmail_include_spam_trash: bool = False
+    token_store: str | None = None
+    token_file: str | None = None
+    limit: int = 50
+    full_sync: bool = False
+    parser_config: ParserConfig = field(default_factory=ParserConfig)
+
+    def __post_init__(self) -> None:
+        provider = self.provider.strip().lower()
+        account_id = self.account_id.strip() if self.account_id else None
+        gmail_api_base = self.gmail_api_base.rstrip("/") if self.gmail_api_base else None
+        gmail_user_id = self.gmail_user_id.strip() if self.gmail_user_id else "me"
+        gmail_label = self.gmail_label.strip() if self.gmail_label else "INBOX"
+        gmail_query = self.gmail_query.strip() if self.gmail_query and self.gmail_query.strip() else None
+        token_store = self.token_store.strip() if self.token_store and self.token_store.strip() else None
+        token_file = self.token_file.strip() if self.token_file and self.token_file.strip() else None
+
+        if provider != "gmail":
+            raise ValueError("Receive provider must be 'gmail'.")
+        if self.limit < 1 or self.limit > 500:
+            raise ValueError("Receive limit must be between 1 and 500.")
+
+        object.__setattr__(self, "provider", provider)
+        object.__setattr__(self, "account_id", account_id)
+        object.__setattr__(self, "gmail_api_base", gmail_api_base)
+        object.__setattr__(self, "gmail_user_id", gmail_user_id)
+        object.__setattr__(self, "gmail_label", gmail_label)
+        object.__setattr__(self, "gmail_query", gmail_query)
+        object.__setattr__(self, "token_store", token_store)
+        object.__setattr__(self, "token_file", token_file)
+
+    def to_safe_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "account_id": self.account_id,
+            "gmail_api_base": self.gmail_api_base,
+            "gmail_user_id": self.gmail_user_id,
+            "gmail_label": self.gmail_label,
+            "gmail_query": self.gmail_query,
+            "gmail_include_spam_trash": self.gmail_include_spam_trash,
+            "token_store": self.token_store,
+            "token_file": self.token_file,
+            "limit": self.limit,
+            "full_sync": self.full_sync,
+            "parser_config": self.parser_config.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class ReceiveResult:
+    status: str
+    provider: str
+    account_id: str
+    fetched_count: int
+    ingested_count: int
+    duplicate_count: int
+    error_count: int
+    document_ids: tuple[str, ...]
+    cursor: dict[str, object]
+    run_id: str
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["document_ids"] = list(self.document_ids)
+        return payload
+
+
+@dataclass(frozen=True)
+class ReceiveAccount:
+    id: str
+    provider: str
+    email: str | None
+    label: str | None
+    query: str | None
+    created_at: str
+    updated_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ReceiveCursor:
+    account_id: str
+    provider: str
+    cursor_json: dict[str, object]
+    updated_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ReceiveRun:
+    id: str
+    account_id: str
+    provider: str
+    status: str
+    started_at: str
+    finished_at: str | None
+    fetched_count: int
+    ingested_count: int
+    duplicate_count: int
+    error_count: int
+    error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class OutboundMessageRef:
     id: str
     status: str

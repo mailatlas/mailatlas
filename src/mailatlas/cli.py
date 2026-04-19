@@ -11,6 +11,7 @@ from pathlib import Path
 
 from mailatlas.adapters.imap import ImapSyncError
 from mailatlas.core import (
+    GMAIL_READONLY_SCOPE,
     GMAIL_SEND_SCOPE,
     GmailAuthConfig,
     ImapSyncConfig,
@@ -18,13 +19,16 @@ from mailatlas.core import (
     OutboundAttachment,
     OutboundMessage,
     ParserConfig,
+    ReceiveConfig,
     SendConfig,
+    gmail_scopes_for_capabilities,
     gmail_auth_logout,
     gmail_auth_status,
     run_gmail_auth_flow,
 )
 from mailatlas.core.gmail_auth import create_gmail_token_store, load_valid_gmail_access_token
 from mailatlas.core.pdf import find_pdf_browser
+from mailatlas.receive import receive_watch
 
 
 def _root_parent_parser() -> argparse.ArgumentParser:
@@ -142,6 +146,27 @@ def _add_parser_config_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_receive_config_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--provider", default=None, help="Receive provider or MAILATLAS_RECEIVE_PROVIDER. Defaults to gmail.")
+    parser.add_argument("--account-id", default=None, help="Stable local receive account id.")
+    parser.add_argument("--label", default=None, help="Gmail label to receive from or MAILATLAS_GMAIL_RECEIVE_LABEL. Defaults to INBOX.")
+    parser.add_argument("--query", default=None, help="Optional Gmail search query or MAILATLAS_GMAIL_RECEIVE_QUERY.")
+    parser.add_argument("--limit", type=int, default=None, help="Maximum messages to fetch in one pass. Defaults to 50.")
+    parser.add_argument("--full-sync", action="store_true", help="Ignore the incremental cursor and run an explicit full sync.")
+    parser.add_argument(
+        "--include-spam-trash",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include Gmail spam and trash in receive list calls.",
+    )
+    parser.add_argument("--gmail-access-token", default=None, help="One-off Gmail OAuth access token or MAILATLAS_GMAIL_ACCESS_TOKEN.")
+    parser.add_argument("--gmail-api-base", default=None, help="Gmail API base URL or MAILATLAS_GMAIL_API_BASE.")
+    parser.add_argument("--gmail-user-id", default=None, help="Gmail API user id or MAILATLAS_GMAIL_USER_ID. Defaults to me.")
+    parser.add_argument("--token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
+    parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+    _add_parser_config_arguments(parser)
+
+
 def _parser_config_from_args(args: argparse.Namespace) -> ParserConfig:
     return ParserConfig(
         strip_forwarded_headers=args.strip_forwarded_headers,
@@ -244,11 +269,59 @@ def _send_config_from_args(args: argparse.Namespace) -> SendConfig:
     )
 
 
+def _int_from_env_or_value(value: int | str | None, env_name: str, default: int) -> int:
+    raw_value = str(value) if value is not None else os.environ.get(env_name, str(default))
+    try:
+        return int(raw_value or str(default))
+    except ValueError as error:
+        raise ValueError(f"{env_name} must be an integer.") from error
+
+
+def _receive_config_from_args(args: argparse.Namespace) -> ReceiveConfig:
+    provider = _env_or_value(args.provider, "MAILATLAS_RECEIVE_PROVIDER", "gmail") or "gmail"
+    limit = _int_from_env_or_value(args.limit, "MAILATLAS_GMAIL_RECEIVE_LIMIT", 50)
+    return ReceiveConfig(
+        provider=provider,
+        account_id=args.account_id,
+        gmail_access_token=_env_or_value(args.gmail_access_token, "MAILATLAS_GMAIL_ACCESS_TOKEN"),
+        gmail_api_base=_env_or_value(args.gmail_api_base, "MAILATLAS_GMAIL_API_BASE"),
+        gmail_user_id=_env_or_value(args.gmail_user_id, "MAILATLAS_GMAIL_USER_ID", "me") or "me",
+        gmail_label=_env_or_value(args.label, "MAILATLAS_GMAIL_RECEIVE_LABEL", "INBOX") or "INBOX",
+        gmail_query=_env_or_value(args.query, "MAILATLAS_GMAIL_RECEIVE_QUERY"),
+        gmail_include_spam_trash=_value_or_env_bool(args.include_spam_trash, "MAILATLAS_GMAIL_INCLUDE_SPAM_TRASH", False),
+        token_store=_env_or_value(args.token_store, "MAILATLAS_GMAIL_TOKEN_STORE"),
+        token_file=_env_or_value(args.token_file, "MAILATLAS_GMAIL_TOKEN_FILE"),
+        limit=limit,
+        full_sync=bool(args.full_sync),
+        parser_config=_parser_config_from_args(args),
+    )
+
+
+def _receive_exit_code(status: str) -> int:
+    return 1 if status in {"error", "partial", "not_configured", "cursor_reset_required"} else 0
+
+
+def _gmail_auth_scopes_from_args(args: argparse.Namespace) -> tuple[str, ...]:
+    capability_values: list[str] = []
+    for raw_value in args.capability or []:
+        capability_values.extend(value.strip() for value in raw_value.split(",") if value.strip())
+
+    scopes: list[str] = []
+    if args.scope:
+        scopes.extend(args.scope)
+    if capability_values:
+        scopes.extend(gmail_scopes_for_capabilities(capability_values))
+    if not scopes:
+        scopes.append(GMAIL_SEND_SCOPE)
+
+    return tuple(dict.fromkeys(scopes))
+
+
 def _gmail_auth_config_from_args(args: argparse.Namespace) -> GmailAuthConfig:
     client_id = _env_or_value(args.client_id, "MAILATLAS_GMAIL_CLIENT_ID")
     if not client_id:
         raise ValueError("Gmail OAuth client id is required. Pass --client-id or set MAILATLAS_GMAIL_CLIENT_ID.")
-    scopes = tuple(args.scope or [GMAIL_SEND_SCOPE])
+    scopes = _gmail_auth_scopes_from_args(args)
     timeout = int(_env_or_value(str(args.timeout) if args.timeout is not None else None, "MAILATLAS_GMAIL_AUTH_TIMEOUT", "300") or "300")
     return GmailAuthConfig(
         client_id=client_id,
@@ -412,7 +485,7 @@ def _build_parser() -> argparse.ArgumentParser:
     root_parent = _root_parent_parser()
     parser = argparse.ArgumentParser(
         prog="mailatlas",
-        description="Local email ingestion, export, sending, and audit trails for AI agents and data applications.",
+        description="Local email ingestion, Gmail receive, export, sending, and audit trails for AI agents and data applications.",
         parents=[root_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -474,6 +547,30 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_parser_config_arguments(sync_parser)
 
+    receive_parser = subparsers.add_parser(
+        "receive",
+        help="Receive Gmail messages into the local workspace.",
+        parents=[root_parent],
+    )
+    _add_receive_config_arguments(receive_parser)
+    receive_subparsers = receive_parser.add_subparsers(dest="receive_command")
+
+    receive_watch_parser = receive_subparsers.add_parser(
+        "watch",
+        help="Run foreground background receive polling.",
+        parents=[root_parent],
+    )
+    _add_receive_config_arguments(receive_watch_parser)
+    receive_watch_parser.add_argument("--interval", type=int, default=None, help="Polling interval in seconds. Defaults to 60.")
+    receive_watch_parser.add_argument("--max-runs", type=int, default=None, help="Optional watch run limit for scripts and tests.")
+
+    receive_status_parser = receive_subparsers.add_parser(
+        "status",
+        help="Show receive accounts, cursors, and recent runs.",
+        parents=[root_parent],
+    )
+    receive_status_parser.add_argument("--account-id", default=None, help="Optional receive account id to inspect.")
+
     send_parser = subparsers.add_parser(
         "send",
         help="Compose, send, and audit an outbound email.",
@@ -525,6 +622,12 @@ def _build_parser() -> argparse.ArgumentParser:
     gmail_auth_parser.add_argument("--client-secret", default=None, help="Google OAuth client secret or MAILATLAS_GMAIL_CLIENT_SECRET.")
     gmail_auth_parser.add_argument("--email", default=None, help="Gmail address hint stored for status output.")
     gmail_auth_parser.add_argument("--scope", action="append", default=None, help=f"OAuth scope. Defaults to {GMAIL_SEND_SCOPE}.")
+    gmail_auth_parser.add_argument(
+        "--capability",
+        action="append",
+        default=None,
+        help=f"Gmail capability to request: send, receive, or comma-separated send,receive. Receive uses {GMAIL_READONLY_SCOPE}.",
+    )
     gmail_auth_parser.add_argument("--token-file", default=None, help="Path to store Gmail OAuth token JSON.")
     gmail_auth_parser.add_argument("--token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
     gmail_auth_parser.add_argument("--timeout", type=int, default=None, help="Seconds to wait for the local OAuth callback.")
@@ -587,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
                     _gmail_auth_config_from_args(args),
                     store=store,
                     open_browser=not args.no_browser,
-                    notify=lambda url: print(f"Open this URL to authorize Gmail sending:\n{url}", file=sys.stderr),
+                    notify=lambda url: print(f"Open this URL to authorize Gmail access:\n{url}", file=sys.stderr),
                 )
             elif args.auth_command == "status" and args.provider == "gmail":
                 result = gmail_auth_status(store=store)
@@ -606,6 +709,36 @@ def main(argv: list[str] | None = None) -> int:
     db_path, workspace_path = _workspace_paths_from_root(root)
     parser_config = _parser_config_from_args(args) if args.command == "ingest" else None
     atlas = MailAtlas(db_path=db_path, workspace_path=workspace_path, parser_config=parser_config)
+
+    if args.command == "receive":
+        try:
+            if args.receive_command == "status":
+                print(json.dumps(atlas.receive_status(account_id=args.account_id), indent=2))
+                return 0
+
+            config = _receive_config_from_args(args)
+            if args.receive_command == "watch":
+                interval = _int_from_env_or_value(args.interval, "MAILATLAS_RECEIVE_INTERVAL_SECONDS", 60)
+                max_runs = args.max_runs
+                if max_runs is None and os.environ.get("MAILATLAS_RECEIVE_MAX_RUNS"):
+                    max_runs = _int_from_env_or_value(None, "MAILATLAS_RECEIVE_MAX_RUNS", 0)
+
+                results = receive_watch(
+                    atlas,
+                    config,
+                    interval_seconds=interval,
+                    stop_after=max_runs,
+                    on_result=lambda result: print(json.dumps(result.to_dict(), separators=(",", ":")), flush=True),
+                )
+                return _receive_exit_code(results[-1].status) if results else 0
+
+            result = atlas.receive(config)
+        except (OSError, RuntimeError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+        print(json.dumps(result.to_dict(), indent=2))
+        return _receive_exit_code(result.status)
 
     if args.command == "ingest":
         try:
