@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .gmail_auth import FileTokenStore, load_valid_gmail_access_token
+from .gmail_auth import create_gmail_token_store, load_valid_gmail_access_token
 from .models import OutboundAttachment, OutboundMessage, SendConfig
 from .service import MailAtlas
 
@@ -160,6 +160,7 @@ class MailAtlasMcpTools:
         gmail_api_base: str | None = None,
         gmail_user_id: str | None = None,
         gmail_token_file: str | None = None,
+        gmail_token_store: str | None = None,
         **message_kwargs: Any,
     ) -> dict[str, Any]:
         message = _outbound_message(**message_kwargs)
@@ -177,7 +178,9 @@ class MailAtlasMcpTools:
 
         effective_gmail_access_token = _env_or_value(gmail_access_token, "MAILATLAS_GMAIL_ACCESS_TOKEN")
         if effective_provider == "gmail" and not dry_run and not effective_gmail_access_token:
-            effective_gmail_access_token = load_valid_gmail_access_token(store=FileTokenStore(gmail_token_file))
+            effective_gmail_access_token = load_valid_gmail_access_token(
+                store=create_gmail_token_store(gmail_token_file, token_store=gmail_token_store)
+            )
 
         config = SendConfig(
             provider=effective_provider,

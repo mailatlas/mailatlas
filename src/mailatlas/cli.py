@@ -23,7 +23,7 @@ from mailatlas.core import (
     gmail_auth_status,
     run_gmail_auth_flow,
 )
-from mailatlas.core.gmail_auth import FileTokenStore, load_valid_gmail_access_token
+from mailatlas.core.gmail_auth import create_gmail_token_store, load_valid_gmail_access_token
 from mailatlas.core.pdf import find_pdf_browser
 
 
@@ -222,7 +222,9 @@ def _send_config_from_args(args: argparse.Namespace) -> SendConfig:
 
     gmail_access_token = _env_or_value(args.gmail_access_token, "MAILATLAS_GMAIL_ACCESS_TOKEN")
     if provider == "gmail" and not args.dry_run and not gmail_access_token:
-        gmail_access_token = load_valid_gmail_access_token(store=FileTokenStore(args.gmail_token_file))
+        gmail_access_token = load_valid_gmail_access_token(
+            store=create_gmail_token_store(args.gmail_token_file, token_store=args.gmail_token_store)
+        )
 
     return SendConfig(
         provider=provider,
@@ -511,6 +513,7 @@ def _build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--gmail-api-base", default=None, help="Gmail API base URL or MAILATLAS_GMAIL_API_BASE.")
     send_parser.add_argument("--gmail-user-id", default=None, help="Gmail API user id or MAILATLAS_GMAIL_USER_ID. Defaults to me.")
     send_parser.add_argument("--gmail-token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+    send_parser.add_argument("--gmail-token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
 
     auth_parser = subparsers.add_parser(
         "auth",
@@ -523,16 +526,19 @@ def _build_parser() -> argparse.ArgumentParser:
     gmail_auth_parser.add_argument("--email", default=None, help="Gmail address hint stored for status output.")
     gmail_auth_parser.add_argument("--scope", action="append", default=None, help=f"OAuth scope. Defaults to {GMAIL_SEND_SCOPE}.")
     gmail_auth_parser.add_argument("--token-file", default=None, help="Path to store Gmail OAuth token JSON.")
+    gmail_auth_parser.add_argument("--token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
     gmail_auth_parser.add_argument("--timeout", type=int, default=None, help="Seconds to wait for the local OAuth callback.")
     gmail_auth_parser.add_argument("--no-browser", action="store_true", help="Print the OAuth URL instead of opening a browser.")
 
     auth_status_parser = auth_subparsers.add_parser("status", help="Show provider auth status.")
     auth_status_parser.add_argument("provider", choices=["gmail"], help="Provider to inspect.")
     auth_status_parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+    auth_status_parser.add_argument("--token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
 
     auth_logout_parser = auth_subparsers.add_parser("logout", help="Remove stored provider auth.")
     auth_logout_parser.add_argument("provider", choices=["gmail"], help="Provider to remove.")
     auth_logout_parser.add_argument("--token-file", default=None, help="Path to stored Gmail OAuth token JSON.")
+    auth_logout_parser.add_argument("--token-store", default=None, help="Gmail token store: auto, keychain, file, or a token file path.")
 
     mcp_parser = subparsers.add_parser(
         "mcp",
@@ -575,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "auth":
         try:
-            store = FileTokenStore(getattr(args, "token_file", None))
+            store = create_gmail_token_store(getattr(args, "token_file", None), token_store=getattr(args, "token_store", None))
             if args.auth_command == "gmail":
                 result = run_gmail_auth_flow(
                     _gmail_auth_config_from_args(args),
@@ -589,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = gmail_auth_logout(store=store)
             else:
                 parser.error("Unsupported auth command")
-        except (OSError, TimeoutError, ValueError) as error:
+        except (OSError, RuntimeError, TimeoutError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 1
 
@@ -652,7 +658,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "send":
         try:
             result = atlas.send_email(_outbound_message_from_args(args), _send_config_from_args(args))
-        except (OSError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 1
 

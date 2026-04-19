@@ -44,6 +44,9 @@ dev = [
 mcp = [
   "mcp>=1,<2",
 ]
+keychain = [
+  "keyring>=25",
+]
 
 [project.scripts]
 mailatlas = "mailatlas.cli:main"

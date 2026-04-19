@@ -218,6 +218,8 @@ For personal Gmail addresses, prefer Gmail API OAuth instead of SMTP app passwor
 Google OAuth desktop client, then authorize MailAtlas once:
 
 ```bash
+python -m pip install "mailatlas[keychain]"
+
 mailatlas auth gmail \
   --client-id "$MAILATLAS_GMAIL_CLIENT_ID" \
   --client-secret "$MAILATLAS_GMAIL_CLIENT_SECRET" \
@@ -243,6 +245,15 @@ MailAtlas stores Gmail OAuth tokens outside the workspace by default and never w
 ```bash
 mailatlas auth logout gmail
 ```
+
+When the `keychain` extra is installed, local CLI auth stores Gmail OAuth token material in the
+operating system keychain by default. Without that extra, MailAtlas falls back to a user config
+token file. Use `--token-file` for throwaway tests, `--token-store file` to force the config file,
+or `--token-store keychain` to require keychain storage. `MAILATLAS_GMAIL_TOKEN_FILE` selects a
+file store when no token store is passed explicitly.
+
+Backend applications should store Gmail refresh tokens in their own encrypted credential store and
+pass short-lived access tokens to `SendConfig(provider="gmail", gmail_access_token="...")`.
 
 ## Python API Example
 

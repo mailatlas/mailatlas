@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+import types
 import urllib.parse
 import unittest
 from unittest import mock
@@ -34,7 +35,14 @@ from mailatlas.core import (
     parse_eml,
 )
 from mailatlas.core import pdf as pdf_module
-from mailatlas.core.gmail_auth import FileTokenStore, GmailAuthConfig, GmailAuthResult, exchange_gmail_authorization_code
+from mailatlas.core.gmail_auth import (
+    FileTokenStore,
+    GmailAuthConfig,
+    GmailAuthResult,
+    KeyringTokenStore,
+    create_gmail_token_store,
+    exchange_gmail_authorization_code,
+)
 
 
 SVG_BYTES = (
@@ -271,6 +279,33 @@ class FakeHttpResponse:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+
+class PasswordDeleteError(Exception):
+    pass
+
+
+def _fake_keyring_module() -> types.ModuleType:
+    fake_keyring = types.ModuleType("keyring")
+    passwords: dict[tuple[str, str], str] = {}
+
+    def get_password(service_name: str, username: str) -> str | None:
+        return passwords.get((service_name, username))
+
+    def set_password(service_name: str, username: str, password: str) -> None:
+        passwords[(service_name, username)] = password
+
+    def delete_password(service_name: str, username: str) -> None:
+        key = (service_name, username)
+        if key not in passwords:
+            raise PasswordDeleteError("not found")
+        del passwords[key]
+
+    fake_keyring.get_password = get_password  # type: ignore[attr-defined]
+    fake_keyring.set_password = set_password  # type: ignore[attr-defined]
+    fake_keyring.delete_password = delete_password  # type: ignore[attr-defined]
+    fake_keyring.errors = types.SimpleNamespace(PasswordDeleteError=PasswordDeleteError)  # type: ignore[attr-defined]
+    return fake_keyring
 
 
 class MailAtlasTests(unittest.TestCase):
@@ -988,6 +1023,83 @@ class MailAtlasTests(unittest.TestCase):
         self.assertEqual(token["refresh_token"], "refresh-secret")
         self.assertEqual(token["email"], "sender@gmail.com")
 
+    def test_gmail_token_store_auto_prefers_keychain_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "gmail-token.json"
+            with mock.patch("mailatlas.core.gmail_auth.KeyringTokenStore.is_available", return_value=True):
+                auto_store = create_gmail_token_store(token_store="auto")
+                explicit_store = create_gmail_token_store(token_path, token_store="keychain")
+
+        self.assertIsInstance(auto_store, KeyringTokenStore)
+        self.assertEqual(auto_store.store_type, "keychain")
+        self.assertIsInstance(explicit_store, FileTokenStore)
+        self.assertEqual(explicit_store.store_path, token_path.resolve().as_posix())
+
+    def test_gmail_token_store_auto_falls_back_to_file_when_keychain_is_unavailable(self) -> None:
+        with mock.patch("mailatlas.core.gmail_auth.KeyringTokenStore.is_available", return_value=False):
+            store = create_gmail_token_store(token_store="auto")
+
+        self.assertIsInstance(store, FileTokenStore)
+        self.assertEqual(store.store_type, "file")
+
+    def test_gmail_token_store_env_token_file_overrides_default_auto_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "gmail-token.json"
+            with mock.patch.dict(os.environ, {"MAILATLAS_GMAIL_TOKEN_FILE": token_path.as_posix()}, clear=True):
+                with mock.patch("mailatlas.core.gmail_auth.KeyringTokenStore.is_available", return_value=True):
+                    store = create_gmail_token_store()
+
+        self.assertIsInstance(store, FileTokenStore)
+        self.assertEqual(store.store_path, token_path.resolve().as_posix())
+
+    def test_cli_auth_status_and_logout_support_keychain_without_printing_tokens(self) -> None:
+        fake_keyring = _fake_keyring_module()
+        with mock.patch.dict(sys.modules, {"keyring": fake_keyring}):
+            KeyringTokenStore().save(
+                {
+                    "access_token": "access-secret",
+                    "refresh_token": "refresh-secret",
+                    "client_id": "client-123",
+                    "client_secret": "client-secret",
+                    "expires_at": 1893456000,
+                    "scope": "https://www.googleapis.com/auth/gmail.send",
+                    "email": "sender@gmail.com",
+                }
+            )
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                status_code = mailatlas_cli.main(["auth", "status", "gmail", "--token-store", "keychain"])
+
+            status_output = stdout.getvalue()
+            status_payload = json.loads(status_output)
+
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as logout_stdout:
+                logout_code = mailatlas_cli.main(["auth", "logout", "gmail", "--token-store", "keychain"])
+
+            logout_output = logout_stdout.getvalue()
+            logout_payload = json.loads(logout_output)
+
+            self.assertIsNone(KeyringTokenStore().load())
+
+        self.assertEqual(status_code, 0)
+        self.assertEqual(status_payload["status"], "configured")
+        self.assertEqual(status_payload["store_type"], "keychain")
+        self.assertEqual(status_payload["email"], "sender@gmail.com")
+        self.assertIn("https://www.googleapis.com/auth/gmail.send", status_payload["scopes"])
+        self.assertEqual(logout_code, 0)
+        self.assertEqual(logout_payload["status"], "removed")
+        for secret in ("access-secret", "refresh-secret", "client-secret"):
+            self.assertNotIn(secret, status_output)
+            self.assertNotIn(secret, logout_output)
+
+    def test_cli_auth_keychain_mode_explains_missing_optional_dependency(self) -> None:
+        with mock.patch.dict(sys.modules, {"keyring": None}):
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                exit_code = mailatlas_cli.main(["auth", "status", "gmail", "--token-store", "keychain"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("mailatlas[keychain]", stderr.getvalue())
+
     def test_cli_sync_uses_env_defaults_and_cli_precedence(self) -> None:
         result = ImapSyncResult(host="imap.example.com", port=993, username="user@example.com", auth="password")
 
@@ -1348,6 +1460,62 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(record.provider, "gmail")
             self.assertNotIn("stored-gmail-token", json.dumps(record.to_dict()))
 
+    def test_cli_send_gmail_uses_keychain_token_store_when_requested(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["authorization"] = request.get_header("Authorization")
+            return FakeHttpResponse({"id": "gmail-keychain-message", "threadId": "gmail-keychain-thread"})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            storage_root = root / "mailatlas-root"
+            fake_keyring = _fake_keyring_module()
+            with mock.patch.dict(sys.modules, {"keyring": fake_keyring}):
+                KeyringTokenStore().save(
+                    {
+                        "access_token": "keychain-gmail-token",
+                        "refresh_token": "refresh-token",
+                        "client_id": "client-123",
+                        "expires_at": time.time() + 3600,
+                        "scope": "https://www.googleapis.com/auth/gmail.send",
+                        "email": "sender@gmail.com",
+                    }
+                )
+
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    with mock.patch("mailatlas.adapters.gmail.urllib.request.urlopen", side_effect=fake_urlopen):
+                        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                            exit_code = mailatlas_cli.main(
+                                [
+                                    "send",
+                                    "--root",
+                                    storage_root.as_posix(),
+                                    "--provider",
+                                    "gmail",
+                                    "--gmail-token-store",
+                                    "keychain",
+                                    "--from",
+                                    "sender@gmail.com",
+                                    "--to",
+                                    "recipient@example.com",
+                                    "--subject",
+                                    "Gmail keychain CLI",
+                                    "--text",
+                                    "Body",
+                                ]
+                            )
+
+            payload = json.loads(stdout.getvalue())
+            atlas = MailAtlas(db_path=storage_root / "store.db", workspace_path=storage_root)
+            record = atlas.get_outbound(payload["id"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(payload["status"], "sent")
+            self.assertEqual(payload["provider_message_id"], "gmail-keychain-message")
+            self.assertEqual(captured["authorization"], "Bearer keychain-gmail-token")
+            self.assertNotIn("keychain-gmail-token", json.dumps(record.to_dict()))
+
     def test_cli_auth_status_and_logout_do_not_print_gmail_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             token_path = Path(temp_dir) / "gmail-token.json"
@@ -1389,6 +1557,7 @@ class MailAtlasTests(unittest.TestCase):
             fake_result = GmailAuthResult(
                 status="ok",
                 store_path=token_path.as_posix(),
+                store_type="file",
                 email="sender@gmail.com",
                 scopes=("https://www.googleapis.com/auth/gmail.send",),
                 expires_at=1893456000,

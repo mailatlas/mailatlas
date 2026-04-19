@@ -111,6 +111,7 @@ def build_mcp_server(*, root: str | Path | None = None, allow_send: bool | None 
             gmail_api_base: str | None = None,
             gmail_user_id: str | None = None,
             gmail_token_file: str | None = None,
+            gmail_token_store: str | None = None,
         ) -> dict:
             """Consequential action: send an outbound email through a configured provider."""
             return toolkit.send_email(
@@ -144,6 +145,7 @@ def build_mcp_server(*, root: str | Path | None = None, allow_send: bool | None 
                 gmail_api_base=gmail_api_base,
                 gmail_user_id=gmail_user_id,
                 gmail_token_file=gmail_token_file,
+                gmail_token_store=gmail_token_store,
             )
 
     return mcp
