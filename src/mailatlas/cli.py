@@ -620,6 +620,20 @@ def _build_parser() -> argparse.ArgumentParser:
         parents=[root_parent],
     )
     mcp_parser.add_argument("--transport", choices=["stdio"], default="stdio", help="MCP transport. Defaults to stdio.")
+    mcp_parser.add_argument(
+        "--allow-send",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Expose the live mailatlas_send_email MCP tool. Defaults to MAILATLAS_MCP_ALLOW_SEND.",
+    )
+    mcp_parser.add_argument(
+        "--allow-receive",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Expose MCP mailbox receive tools. Defaults to MAILATLAS_MCP_ALLOW_RECEIVE.",
+    )
 
     doctor_parser = subparsers.add_parser("doctor", help="Run a local self-check.", parents=[root_parent])
     doctor_parser.add_argument(
@@ -763,7 +777,12 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from mailatlas.mcp_server import run_mcp_server
 
-            return run_mcp_server(root=_resolve_root(args.root), transport=args.transport)
+            return run_mcp_server(
+                root=_resolve_root(args.root),
+                transport=args.transport,
+                allow_send=args.allow_send,
+                allow_receive=args.allow_receive,
+            )
         except RuntimeError as error:
             print(str(error), file=sys.stderr)
             return 1

@@ -206,10 +206,16 @@ def build_mcp_server(
     return mcp
 
 
-def run_mcp_server(*, root: str | Path | None = None, transport: str = "stdio") -> int:
+def run_mcp_server(
+    *,
+    root: str | Path | None = None,
+    transport: str = "stdio",
+    allow_send: bool | None = None,
+    allow_receive: bool | None = None,
+) -> int:
     if transport != "stdio":
         raise ValueError("MailAtlas MCP currently supports only the stdio transport.")
-    server = build_mcp_server(root=root)
+    server = build_mcp_server(root=root, allow_send=allow_send, allow_receive=allow_receive)
     server.run(transport=transport)
     return 0
 
@@ -218,8 +224,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the MailAtlas MCP server.")
     parser.add_argument("--root", default=None, help="MailAtlas root directory.")
     parser.add_argument("--transport", choices=["stdio"], default="stdio", help="MCP transport. Defaults to stdio.")
+    parser.add_argument(
+        "--allow-send",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Expose the live mailatlas_send_email MCP tool. Defaults to MAILATLAS_MCP_ALLOW_SEND.",
+    )
+    parser.add_argument(
+        "--allow-receive",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Expose MCP mailbox receive tools. Defaults to MAILATLAS_MCP_ALLOW_RECEIVE.",
+    )
     args = parser.parse_args(argv)
-    return run_mcp_server(root=args.root, transport=args.transport)
+    return run_mcp_server(
+        root=args.root,
+        transport=args.transport,
+        allow_send=args.allow_send,
+        allow_receive=args.allow_receive,
+    )
 
 
 if __name__ == "__main__":

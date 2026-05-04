@@ -104,12 +104,30 @@ mailatlas mcp --root .mailatlas
 ```
 
 The MCP server exposes read tools for stored documents and outbound audit records, plus
-`mailatlas_draft_email`. The live `mailatlas_send_email` tool is hidden unless you explicitly opt
-in:
+`mailatlas_draft_email`. The live `mailatlas_send_email` tool and mailbox receive tools are hidden
+unless you explicitly opt in.
+
+For MCP clients that accept server configuration as JSON, put MailAtlas settings in the server entry
+instead of exporting shell variables globally:
+
+```json
+{
+  "mcpServers": {
+    "mailatlas": {
+      "command": "mailatlas",
+      "args": ["mcp", "--root", ".mailatlas", "--allow-receive"],
+      "env": {
+        "MAILATLAS_GMAIL_TOKEN_STORE": "auto"
+      }
+    }
+  }
+}
+```
+
+Use `--allow-send` only when the MCP client should be able to send live email:
 
 ```bash
-export MAILATLAS_MCP_ALLOW_SEND=1
-mailatlas mcp --root .mailatlas
+mailatlas mcp --root .mailatlas --allow-send
 ```
 
 Use the same provider environment variables as `mailatlas send` for SMTP, Cloudflare, or Gmail.
@@ -119,12 +137,14 @@ Mailbox receive tools are also hidden by default. Enable them only when the MCP 
 to contact a provider and write private email into the local workspace:
 
 ```bash
-export MAILATLAS_MCP_ALLOW_RECEIVE=1
-mailatlas mcp --root .mailatlas
+mailatlas mcp --root .mailatlas --allow-receive
 ```
 
-Set `MAILATLAS_MCP_RECEIVE_ON_READ=1` only if read tools should run one receive pass before listing
-documents. Without that flag, MCP read tools use only messages already stored locally.
+The older process environment switches still work for MCP client configs that prefer `env` over
+arguments: `MAILATLAS_MCP_ALLOW_SEND=1`, `MAILATLAS_MCP_ALLOW_RECEIVE=1`, and
+`MAILATLAS_MCP_RECEIVE_ON_READ=1`. Set `MAILATLAS_MCP_RECEIVE_ON_READ=1` only if read tools should
+run one receive pass before listing documents. Without that setting, MCP read tools use only messages
+already stored locally.
 
 ## Verify The Install
 

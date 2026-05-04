@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mailatlas.cli as mailatlas_cli
+import mailatlas.mcp_server as mailatlas_mcp_server
 from mailatlas.core import (
     GMAIL_READONLY_SCOPE,
     MailAtlas,
@@ -1764,6 +1765,26 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(run_mock.call_args.kwargs["root"], root.resolve())
             self.assertEqual(run_mock.call_args.kwargs["transport"], "stdio")
+            self.assertIsNone(run_mock.call_args.kwargs["allow_send"])
+            self.assertIsNone(run_mock.call_args.kwargs["allow_receive"])
+
+    def test_cli_mcp_accepts_explicit_capability_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mailatlas-root"
+            with mock.patch("mailatlas.mcp_server.run_mcp_server", return_value=0) as run_mock:
+                exit_code = mailatlas_cli.main(
+                    [
+                        "mcp",
+                        "--root",
+                        root.as_posix(),
+                        "--allow-send",
+                        "--allow-receive",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIs(run_mock.call_args.kwargs["allow_send"], True)
+            self.assertIs(run_mock.call_args.kwargs["allow_receive"], True)
 
     def test_cli_mcp_defaults_to_stdio_transport(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1773,6 +1794,22 @@ class MailAtlasTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(run_mock.call_args.kwargs["transport"], "stdio")
+
+    def test_run_mcp_server_passes_explicit_capabilities_to_builder(self) -> None:
+        with mock.patch("mailatlas.mcp_server.build_mcp_server") as build_mock:
+            server_mock = build_mock.return_value
+            exit_code = mailatlas_mcp_server.run_mcp_server(
+                root="mailatlas-root",
+                transport="stdio",
+                allow_send=True,
+                allow_receive=True,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(build_mock.call_args.kwargs["root"], "mailatlas-root")
+        self.assertIs(build_mock.call_args.kwargs["allow_send"], True)
+        self.assertIs(build_mock.call_args.kwargs["allow_receive"], True)
+        server_mock.run.assert_called_once_with(transport="stdio")
 
     def test_cli_send_gmail_uses_stored_token_when_env_token_is_absent(self) -> None:
         captured: dict[str, object] = {}
