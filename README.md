@@ -107,6 +107,9 @@ The MCP server exposes read tools for stored documents and outbound audit record
 `mailatlas_draft_email`. The live `mailatlas_send_email` tool and mailbox receive tools are hidden
 unless you explicitly opt in.
 
+`mailatlas_list_documents` and `mailatlas_list_outbound` accept `limit` and `offset` pagination
+arguments. They return `count` and `has_more` alongside the page of results.
+
 For MCP clients that accept server configuration as JSON, put MailAtlas settings in the server entry
 instead of exporting shell variables globally:
 

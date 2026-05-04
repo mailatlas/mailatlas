@@ -92,6 +92,30 @@ def _int_env_or_value(value: int | str | None, env_name: str, default: int) -> i
         raise ValueError(f"{env_name} must be an integer.") from error
 
 
+def _pagination(limit: int | str, offset: int | str) -> tuple[int, int]:
+    try:
+        normalized_limit = int(limit)
+        normalized_offset = int(offset)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Pagination limit and offset must be integers.") from error
+    if normalized_limit < 1 or normalized_limit > 500:
+        raise ValueError("Pagination limit must be between 1 and 500.")
+    if normalized_offset < 0:
+        raise ValueError("Pagination offset must be zero or greater.")
+    return normalized_limit, normalized_offset
+
+
+def _page_payload(key: str, items: list[Any], *, limit: int, offset: int) -> dict[str, Any]:
+    page_items = items[:limit]
+    return {
+        key: [item.to_dict() for item in page_items],
+        "limit": limit,
+        "offset": offset,
+        "count": len(page_items),
+        "has_more": len(items) > limit,
+    }
+
+
 def _receive_config(
     *,
     provider: str | None = None,
@@ -214,11 +238,12 @@ class MailAtlasMcpTools:
             )
             self._receive_thread.start()
 
-    def list_documents(self, query: str | None = None) -> dict[str, Any]:
+    def list_documents(self, query: str | None = None, limit: int | str = 50, offset: int | str = 0) -> dict[str, Any]:
         if self.receive_on_read:
             self.atlas.receive(_receive_config())
-        refs = self.atlas.list_documents(query=query)
-        return {"documents": [ref.to_dict() for ref in refs]}
+        page_limit, page_offset = _pagination(limit, offset)
+        refs = self.atlas.list_documents(query=query, limit=page_limit + 1, offset=page_offset)
+        return _page_payload("documents", refs, limit=page_limit, offset=page_offset)
 
     def get_document(self, document_id: str) -> dict[str, Any]:
         return self.atlas.get_document(document_id).to_dict()
@@ -228,9 +253,10 @@ class MailAtlasMcpTools:
         key = "path" if out_path or format == "pdf" else "content"
         return {"document_id": document_id, "format": format, key: content}
 
-    def list_outbound(self, query: str | None = None) -> dict[str, Any]:
-        refs = self.atlas.list_outbound(query=query)
-        return {"outbound": [ref.to_dict() for ref in refs]}
+    def list_outbound(self, query: str | None = None, limit: int | str = 50, offset: int | str = 0) -> dict[str, Any]:
+        page_limit, page_offset = _pagination(limit, offset)
+        refs = self.atlas.list_outbound(query=query, limit=page_limit + 1, offset=page_offset)
+        return _page_payload("outbound", refs, limit=page_limit, offset=page_offset)
 
     def get_outbound(self, outbound_id: str, include_bcc: bool = False) -> dict[str, Any]:
         return self.atlas.get_outbound(outbound_id).to_dict(include_bcc=include_bcc)

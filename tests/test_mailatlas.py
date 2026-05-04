@@ -1641,6 +1641,51 @@ class MailAtlasTests(unittest.TestCase):
             self.assertEqual(record["bcc"], [])
             self.assertEqual(tools.get_outbound(payload["id"], include_bcc=True)["bcc"], ["hidden@example.com"])
 
+    def test_mcp_list_documents_paginates_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            tools = MailAtlasMcpTools(root=root / "mailatlas-root")
+            for index, subject in enumerate(["Page One", "Page Two", "Page Three"], start=1):
+                message = _plain_message(subject=subject)
+                message.replace_header("Date", f"Fri, 0{index} Mar 2024 10:00:00 +0000")
+                message.replace_header("Message-ID", f"<page-{index}@example.com>")
+                eml_path = root / f"page-{index}.eml"
+                _write_message(eml_path, message)
+                tools.atlas.ingest_eml([eml_path])
+
+            first_page = tools.list_documents(limit=2, offset=0)
+            second_page = tools.list_documents(limit=2, offset=2)
+
+            self.assertEqual(first_page["limit"], 2)
+            self.assertEqual(first_page["offset"], 0)
+            self.assertEqual(first_page["count"], 2)
+            self.assertEqual([document["subject"] for document in first_page["documents"]], ["Page Three", "Page Two"])
+            self.assertEqual(first_page["has_more"], True)
+            self.assertEqual(second_page["count"], 1)
+            self.assertEqual([document["subject"] for document in second_page["documents"]], ["Page One"])
+            self.assertEqual(second_page["has_more"], False)
+
+    def test_mcp_list_outbound_paginates_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root")
+            for subject in ["Draft One", "Draft Two", "Draft Three"]:
+                tools.draft_email(
+                    from_email="agent@example.com",
+                    to=["team@example.com"],
+                    subject=subject,
+                    text="Draft body.",
+                )
+
+            first_page = tools.list_outbound(limit=2, offset=0)
+            second_page = tools.list_outbound(limit=2, offset=2)
+
+            self.assertEqual(first_page["limit"], 2)
+            self.assertEqual(first_page["offset"], 0)
+            self.assertEqual(first_page["count"], 2)
+            self.assertEqual(first_page["has_more"], True)
+            self.assertEqual(second_page["count"], 1)
+            self.assertEqual(second_page["has_more"], False)
+
     def test_mcp_send_email_is_disabled_by_default_without_storing_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             tools = MailAtlasMcpTools(root=Path(temp_dir) / "mailatlas-root", allow_send=False)
@@ -1684,7 +1729,9 @@ class MailAtlasTests(unittest.TestCase):
                 listed = tools.list_documents()
                 payload = tools.receive(gmail_access_token="mcp-token")
 
-            self.assertEqual(listed, {"documents": []})
+            self.assertEqual(listed["documents"], [])
+            self.assertEqual(listed["count"], 0)
+            self.assertEqual(listed["has_more"], False)
             self.assertFalse(receive_mock.called)
             self.assertEqual(payload["status"], "disabled")
             self.assertIn("MAILATLAS_MCP_ALLOW_RECEIVE=1", payload["error"])

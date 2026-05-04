@@ -21,9 +21,9 @@ def build_mcp_server(
     mcp = FastMCP("MailAtlas")
 
     @mcp.tool()
-    def mailatlas_list_documents(query: str | None = None) -> dict:
+    def mailatlas_list_documents(query: str | None = None, limit: int = 50, offset: int = 0) -> dict:
         """List stored MailAtlas documents."""
-        return toolkit.list_documents(query=query)
+        return toolkit.list_documents(query=query, limit=limit, offset=offset)
 
     @mcp.tool()
     def mailatlas_get_document(document_id: str) -> dict:
@@ -36,9 +36,9 @@ def build_mcp_server(
         return toolkit.export_document(document_id, format=format, out_path=out_path)
 
     @mcp.tool()
-    def mailatlas_list_outbound(query: str | None = None) -> dict:
+    def mailatlas_list_outbound(query: str | None = None, limit: int = 50, offset: int = 0) -> dict:
         """List outbound audit records. BCC recipients are not included in this list view."""
-        return toolkit.list_outbound(query=query)
+        return toolkit.list_outbound(query=query, limit=limit, offset=offset)
 
     @mcp.tool()
     def mailatlas_get_outbound(outbound_id: str, include_bcc: bool = False) -> dict:

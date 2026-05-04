@@ -413,26 +413,36 @@ class WorkspaceStore:
             ],
         )
 
-    def list_documents(self, query: str | None = None) -> list[DocumentRef]:
+    def list_documents(self, query: str | None = None, limit: int | None = None, offset: int = 0) -> list[DocumentRef]:
+        limit_clause = ""
+        params: list[object] = []
+        if limit is not None:
+            limit_clause = "LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
         with self._connect() as connection:
             if query:
                 pattern = f"%{query}%"
+                query_params: list[object] = [pattern, pattern, pattern, pattern, pattern, *params]
                 rows = connection.execute(
-                    """
+                    f"""
                     SELECT id, subject, source_kind, created_at
                     FROM documents
                     WHERE subject LIKE ? OR sender_name LIKE ? OR sender_email LIKE ? OR author LIKE ? OR body_text LIKE ?
-                    ORDER BY COALESCE(received_at, created_at) DESC, created_at DESC
+                    ORDER BY COALESCE(received_at, created_at) DESC, created_at DESC, id DESC
+                    {limit_clause}
                     """,
-                    (pattern, pattern, pattern, pattern, pattern),
+                    query_params,
                 ).fetchall()
             else:
                 rows = connection.execute(
-                    """
+                    f"""
                     SELECT id, subject, source_kind, created_at
                     FROM documents
-                    ORDER BY COALESCE(received_at, created_at) DESC, created_at DESC
-                    """
+                    ORDER BY COALESCE(received_at, created_at) DESC, created_at DESC, id DESC
+                    {limit_clause}
+                    """,
+                    params,
                 ).fetchall()
 
         return [
@@ -628,26 +638,36 @@ class WorkspaceStore:
             return None
         return self.get_outbound(row["id"])
 
-    def list_outbound(self, query: str | None = None) -> list[OutboundMessageRef]:
+    def list_outbound(self, query: str | None = None, limit: int | None = None, offset: int = 0) -> list[OutboundMessageRef]:
+        limit_clause = ""
+        params: list[object] = []
+        if limit is not None:
+            limit_clause = "LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
         with self._connect() as connection:
             if query:
                 pattern = f"%{query}%"
+                query_params: list[object] = [pattern, pattern, pattern, pattern, *params]
                 rows = connection.execute(
-                    """
+                    f"""
                     SELECT id, status, provider, from_email, to_json, subject, created_at, sent_at
                     FROM outbound_messages
                     WHERE subject LIKE ? OR from_email LIKE ? OR to_json LIKE ? OR cc_json LIKE ?
-                    ORDER BY created_at DESC
+                    ORDER BY created_at DESC, id DESC
+                    {limit_clause}
                     """,
-                    (pattern, pattern, pattern, pattern),
+                    query_params,
                 ).fetchall()
             else:
                 rows = connection.execute(
-                    """
+                    f"""
                     SELECT id, status, provider, from_email, to_json, subject, created_at, sent_at
                     FROM outbound_messages
-                    ORDER BY created_at DESC
-                    """
+                    ORDER BY created_at DESC, id DESC
+                    {limit_clause}
+                    """,
+                    params,
                 ).fetchall()
 
         return [self._outbound_ref_from_row(row) for row in rows]

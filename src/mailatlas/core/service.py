@@ -641,8 +641,8 @@ class MailAtlas:
     def get_document(self, document_id: str):
         return self.store.get_document(document_id)
 
-    def list_documents(self, query: str | None = None) -> list[DocumentRef]:
-        return self.store.list_documents(query=query)
+    def list_documents(self, query: str | None = None, limit: int | None = None, offset: int = 0) -> list[DocumentRef]:
+        return self.store.list_documents(query=query, limit=limit, offset=offset)
 
     def export_document(
         self,
@@ -736,8 +736,8 @@ class MailAtlas:
         )
         return send_result_from_record(updated)
 
-    def list_outbound(self, query: str | None = None) -> list[OutboundMessageRef]:
-        return self.store.list_outbound(query=query)
+    def list_outbound(self, query: str | None = None, limit: int | None = None, offset: int = 0) -> list[OutboundMessageRef]:
+        return self.store.list_outbound(query=query, limit=limit, offset=offset)
 
     def get_outbound(self, outbound_id: str) -> OutboundMessageRecord:
         return self.store.get_outbound(outbound_id)
