@@ -43,7 +43,7 @@ dev = [
   "coverage",
 ]
 mcp = [
-  "mcp>=1.27.0,<2",
+  "mcp>=1.27.1,<2",
 ]
 keychain = [
   "keyring>=25.7.0",
